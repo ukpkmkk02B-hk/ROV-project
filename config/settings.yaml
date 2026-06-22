@@ -1,0 +1,53 @@
+pixhawk_comm:
+  device: "/dev/ttl_pixhawk"       # ✅ Pixhawk 串口设备名
+  baud: 115200
+  timeout: 0.5
+
+fish_comm:
+  port: "/dev/ttl_fish_main"       # ✅ 仿生鱼串口
+  baudrate: 460800
+  timeout: 0.5
+
+charging_comm:
+  port: "/dev/ttl_charger"       # ✅ 充电模块串口
+  baudrate: 460800
+  timeout: 0.5
+
+AprilTagCamera_Main:
+  name: "UVC_Camera_Main"
+  device: "/dev/camera_main"
+  camera_id: 0
+  tag_family: "tag36h11"
+  marker_length: 0.092
+  camera_matrix:
+    - [342.10142903, 0, 310.67383732]
+    - [0, 342.30795475, 251.8921935]
+    - [0, 0, 1]
+  dist_coeffs: [0.05423003, -0.05146786, -0.00032794, -0.00140946, -0.00136574]
+  min_detections: 5
+  max_lost: 3
+  
+  
+  # camera_id: 0 表示使用 /dev/video0
+  # marker_length: 0.05 表示标记物的实际长度为 5cm
+  # camera_matrix 和 dist_coeffs 是相机的内参矩阵
+  # 需要根据实际相机进行标定
+  # File: rov_project/config/settings.yaml
+
+surface_comm:
+  host: "0.0.0.0"            # ✅ 本机监听所有网卡
+  port: 9002               # ✅ 上位机连接端口
+
+openmv_receiver:
+  port: "/dev/ttl_bluetooth"       # ✅ 蓝牙串口接收 OpenMV 图像帧z
+  baudrate: 115200
+
+rov_video_forwarder:
+  camera_id: 0               # ✅ 默认使用 /dev/video0
+
+status_reporter:
+  interval: 1.0              # ⏱️ 每秒上传一次状态（可调）
+
+depth_forwarder:
+  port: "/dev/ttyDEPTH"  # ✅ 外部压力传感器串口,3-3.4,外往里第三个，和摄像头接一起
+  baudrate: 19200              # ✅ 波特率
