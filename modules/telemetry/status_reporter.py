@@ -3,12 +3,13 @@ import time
 from modules.comms.surface_comm import SurfaceComm
 
 class StatusReporter:
-    def __init__(self, surface: SurfaceComm, pixhawk=None, fish=None, charger=None):
+    def __init__(self, surface: SurfaceComm, pixhawk=None, fish=None, charger=None, scheduler=None):
         # 初始化状态数据来源与通信接口
         self.surface = surface
         self.pixhawk = pixhawk
         self.fish = fish
         self.charger = charger
+        self.scheduler = scheduler
         self.running = False
         self.thread = threading.Thread(target=self._loop, daemon=True)
 
@@ -25,17 +26,21 @@ class StatusReporter:
     def _loop(self):
         # 每秒采集一次状态并发送给上位机
         while self.running:
-            status = {}
             try:
-                if self.pixhawk:
-                    status['rov_attitude'] = self.pixhawk.get_attitude()
-                if self.fish:
-                    fish_attitude = self.fish.get_status("fish_attitude", {})
-                    status['fish_status'] = fish_attitude
-                if self.charger:
-                    status['charger_status'] = self.charger.get_status()
-
-                self.surface.send_status(status)
+                self.surface.send_status(self._collect_status())
             except Exception as e:
                 print(f"[StatusReporter] ❌ Collect error: {e}")
             time.sleep(0.1)
+
+    def _collect_status(self):
+        status = {}
+        if self.pixhawk:
+            status['rov_attitude'] = self.pixhawk.get_attitude()
+        if self.fish:
+            fish_attitude = self.fish.get_status("fish_attitude", {})
+            status['fish_status'] = fish_attitude
+        if self.charger:
+            status['charger_status'] = self.charger.get_status()
+        if self.scheduler:
+            status['task_status'] = self.scheduler.get_system_status()
+        return status

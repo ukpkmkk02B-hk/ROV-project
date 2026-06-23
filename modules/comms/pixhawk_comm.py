@@ -336,7 +336,7 @@ class PixhawkComm(CommunicationBase):
             0,  # Y方向加速度 (不使用)
             0,  # Z方向加速度 (不使用)
             0,  # 偏航角 (不使用)
-            vel_cmd.get("v_yaw",0)   # 偏航率 ()
+            vel_cmd.get("yaw_rate", vel_cmd.get("v_yaw", 0))   # 偏航率 ()
         )
         self.logger.debug(f"发送速度命令: Vx={vel_cmd.get('vx', 0)}, Vy={vel_cmd.get('vy', 0)}, Vz={vel_cmd.get('vz', 0)}")
         
@@ -994,4 +994,3 @@ if __name__ == "__main__":
     
 #     px4.stop()
 #     print("通信线程已停止，测试结束")
-

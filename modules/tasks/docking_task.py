@@ -10,23 +10,28 @@ sys.path.insert(0, project_root)
 import time
 import math
 from modules.controller import path_follower, precision_docking
+from modules.controller.visual_tracking_controller import VisualTrackingController
 from modules.comms.pixhawk_comm import PixhawkComm
 from modules.comms.comm_base import CommunicationBase
 from modules.perception.camera import AprilTagCameraInterface
+from modules.state.state_estimator import ConstantVelocityEKF
 from modules.states_machine.state_machine import TaskScheduler
 
 
 class DockingTask:
+    STATE_LOCKED = "locked"
     STATE_SEARCH = "search"
-    STATE_APPROACH = "approach"
-    STATE_ALIGN = "align"
+    STATE_TRACK = "track"
+    STATE_PRE_ALIGN = "pre_align"
     STATE_DOCKED = "docked"
     STATE_FAILED = "failed"
+    STATE_APPROACH = STATE_TRACK
+    STATE_ALIGN = STATE_PRE_ALIGN
     
     MAX_SEARCH_TIME = 3.0  # 最大搜索时间（秒）
     SEARCH_SPEED = 0.2  # 搜索旋转速度 (rad/s)
 
-    def __init__(self, camera, pixhawk, state_machine):
+    def __init__(self, camera, pixhawk, state_machine, tracking_config=None):
         """
         初始化对接任务
         :param camera: camera.py 实例
@@ -36,11 +41,26 @@ class DockingTask:
         self.camera = camera
         self.pixhawk = pixhawk
         self.state_machine = state_machine  # 状态机引用
+        tracking_config = tracking_config or {}
         self.stage = self.STATE_SEARCH  # 初始状态为搜索
         
         # 控制器
         self.approach_ctrl = path_follower.PathFollower()
         self.precise_ctrl = precision_docking.PrecisionDockingController()
+        self.tracking_ctrl = VisualTrackingController(
+            desired_z_m=tracking_config.get("desired_z_m", 0.8),
+            max_v_m_s=tracking_config.get("max_v_m_s", 0.4),
+            max_yaw_rate_deg_s=tracking_config.get("max_yaw_rate_deg_s", 25.0),
+            kp_lateral=tracking_config.get("kp_lateral", 0.4),
+            kp_vertical=tracking_config.get("kp_vertical", 0.3),
+            kp_distance=tracking_config.get("kp_distance", 0.4),
+            kp_yaw=tracking_config.get("kp_yaw", 1.0),
+            pre_dock_position_tolerance_m=tracking_config.get("pre_dock_position_tolerance_m", 0.05),
+            pre_dock_distance_tolerance_m=tracking_config.get("pre_dock_distance_tolerance_m", 0.05),
+            pre_dock_yaw_tolerance_deg=tracking_config.get("pre_dock_yaw_tolerance_deg", 5.0),
+        )
+        self.enable_motion = bool(tracking_config.get("enable_motion", False))
+        self.estimator = ConstantVelocityEKF(max_lost_frames=tracking_config.get("max_lost_frames", 10))
         
         # 任务变量
         self.start_time = time.time()
@@ -49,34 +69,38 @@ class DockingTask:
         self.attempts = 0
         self.max_attempts = 3
         self.lost_counter = 0#容错
-        self.max_lost_frames = 3
+        self.max_lost_frames = tracking_config.get("max_lost_frames", 10)
+        self.filtered_state = None
+        self.last_command = None
+        self.pre_dock_ready = False
         # 状态机所需属性
         self.name = "docking"
         self.status = "idle"
 
     def start(self):
         """开始对接任务"""
-        try:
-            # 检查并解锁
-            if not self.pixhawk.is_armed():
-                self.pixhawk.arm_vehicle()
-                time.sleep(2)  # 等待解锁生效
+        if self.enable_motion:
+            try:
+                # 检查并解锁
+                if not self.pixhawk.is_armed():
+                    self.pixhawk.arm_vehicle()
+                    time.sleep(2)  # 等待解锁生效
 
-            if not self.pixhawk.is_armed():
-                raise RuntimeError("飞控解锁失败")
+                if not self.pixhawk.is_armed():
+                    raise RuntimeError("飞控解锁失败")
 
-            # 设置飞控模式为GUIDED
-            if not self.pixhawk.set_mode('MANUAL'):
-                raise RuntimeError("飞控模式切换失败")
+                # 设置飞控模式为GUIDED
+                if not self.pixhawk.set_mode('MANUAL'):
+                    raise RuntimeError("飞控模式切换失败")
 
-        except Exception as e:
-            print(f"[DockingTask] ❌ 启动失败: {e}")
-            self.status = "error"
-            self.state_machine.notify_task_fail(self.name)  # 通知状态机失败
-            return  # 退出start，不继续执行
+            except Exception as e:
+                print(f"[DockingTask] ❌ 启动失败: {e}")
+                self.status = "failed"
+                self.state_machine.notify_task_failed(self.name)  # 通知状态机失败
+                return  # 退出start，不继续执行
 
         # 解锁和模式切换成功后继续启动任务
-        print("[DockingTask] 🚀 启动对接任务")
+        print(f"[DockingTask] 🚀 启动对接任务，dry_run={not self.enable_motion}")
         self.stage = self.STATE_SEARCH
         self.start_time = time.time()
         self.search_start_time = None
@@ -101,48 +125,48 @@ class DockingTask:
         主任务循环，每次读取相对位姿并决定控制方式
         由状态机定期调用
         """
-        
         if self.status != "running":
             return
-            
+
         # 检查任务超时（60秒未完成）
         if time.time() - self.start_time > 60.0:
             print("[DockingTask] ⏰ 任务超时，切换到失败状态")
             self.stage = self.STATE_FAILED
             self._handle_failure()
             return
-            
+
         try:
-            pose = self.camera.get_pose()   ######
+            now = time.time()
+            pose = self.camera.get_pose()
             if pose is not None:
                 self.last_pose = pose
                 self.lost_counter = 0
+                self.filtered_state = self.estimator.update(pose, pose.get("timestamp", now))
             else:
                 self.lost_counter += 1
                 print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 次丢失目标")
-                
-                if self.lost_counter < self.max_lost_frames:
-                    pose = self.last_pose  # 用上次数据撑一下
-                else:
-                    print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 重新搜索阶段")
+                self.filtered_state = self.estimator.predict(now)
+                if self.filtered_state.get("status") == "lost":
                     return self._handle_no_target()
 
-                
             print(f"[DockingTask] 📍 当前阶段: {self.stage}")
-            print(f"[DockingTask] 📸 目标位姿: {pose}")
-            
-            # 状态机处理
+            print(f"[DockingTask] 📸 目标位姿: {pose or self.filtered_state}")
+
             if self.stage == self.STATE_SEARCH:
-                self._search_target()
-            elif self.stage == self.STATE_APPROACH:
-                self._approach(pose)
-            elif self.stage == self.STATE_ALIGN:
-                self._align(pose)
+                if pose is not None and self.camera.target_detected():
+                    print("[DockingTask] ✅ 目标发现! 切换到跟踪状态")
+                    self.stage = self.STATE_TRACK
+                    self.search_start_time = None
+                else:
+                    return self._handle_no_target()
+
+            if self.stage in (self.STATE_TRACK, self.STATE_PRE_ALIGN):
+                self._track(self.filtered_state)
             elif self.stage == self.STATE_DOCKED:
                 self._docked()
             elif self.stage == self.STATE_FAILED:
                 self._handle_failure()
-                
+
         except Exception as e:
             print(f"[DockingTask] ❌ 运行异常: {str(e)}")
             self.stage = self.STATE_FAILED
@@ -159,6 +183,10 @@ class DockingTask:
             "status": self.status,
             "timestamp": time.time(),
             "last_pose": self.last_pose,
+            "filtered_state": self.filtered_state,
+            "control_cmd": self.last_command,
+            "pre_dock_ready": self.pre_dock_ready,
+            "enable_motion": self.enable_motion,
             "attempts": self.attempts
         }
 
@@ -166,6 +194,9 @@ class DockingTask:
         """重置任务状态"""
         print("[DockingTask] 🔄 重置对接任务")
         self.attempts += 1
+        self.pre_dock_ready = False
+        self.last_command = self.tracking_ctrl.neutral_command()
+        self.estimator.reset()
         if self.attempts >= self.max_attempts:
             self.stage = self.STATE_FAILED
             print(self.attempts)
@@ -178,11 +209,12 @@ class DockingTask:
 
     def _handle_no_target(self):
         """处理目标丢失情况"""
+        self.pre_dock_ready = False
+        self.last_command = self.tracking_ctrl.neutral_command()
+        if self.enable_motion:
+            self.pixhawk.send_velocity_command(self.last_command)
+
         if self.stage == self.STATE_SEARCH:
-            # 持续旋转搜索
-            # yaw_rate = self.SEARCH_SPEED if self.attempts % 2 == 0 else -self.SEARCH_SPEED
-            # self.pixhawk.send_velocity_command({"vx": 0, "vy": 0, "vz": 0, "yaw_rate": yaw_rate})
-            
             # 检查搜索超时
             current_time = time.time()
             if not self.search_start_time:
@@ -197,6 +229,24 @@ class DockingTask:
             print("[DockingTask] ⚠️ 目标丢失! 返回搜索")
             self.stage = self.STATE_SEARCH
             self.search_start_time = time.time()
+
+    def _track(self, state):
+        """跟踪阶段：计算控制量，默认dry-run不下发推进控制。"""
+        if not state or state.get("status") == "lost":
+            return self._handle_no_target()
+
+        self.last_command = self.tracking_ctrl.compute_command(state)
+        self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(state)
+
+        if self.enable_motion:
+            self.pixhawk.send_velocity_command(self.last_command)
+
+        print(f"[tracking] 📸 控制输出: {self.last_command}, dry_run={not self.enable_motion}")
+        if self.pre_dock_ready:
+            print("[DockingTask] ✅ 视觉预对准完成")
+            self.stage = self.STATE_PRE_ALIGN
+        else:
+            self.stage = self.STATE_TRACK
 
     def _search_target(self):
         """搜索目标阶段 - 当检测到位姿时自动切换到接近状态"""
@@ -259,16 +309,16 @@ class DockingTask:
 
     def _is_docked(self, pose):
         """判断是否完成对接（姿态 + 距离都满足）"""
-        angle_tolerance_rad = 5.0 * (math.pi / 180.0)
+        angle_tolerance_deg = 5.0
         dist_tolerance = 0.05  # 10cm
         
         dist_ok = (abs(pose["x"]) < dist_tolerance and 
                    abs(pose["y"]) < dist_tolerance and 
                    abs(pose["z"]) < dist_tolerance)
         
-        ang_ok = (abs(pose["roll"]) < angle_tolerance_rad and
-                  abs(pose["pitch"]) < angle_tolerance_rad and
-                  abs(pose["yaw"]) < angle_tolerance_rad)
+        ang_ok = (abs(pose["roll"]) < angle_tolerance_deg and
+                  abs(pose["pitch"]) < angle_tolerance_deg and
+                  abs(pose["yaw"]) < angle_tolerance_deg)
         
         return dist_ok and ang_ok
     

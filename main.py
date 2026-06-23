@@ -16,6 +16,7 @@ from modules.comms.charging_comm import ChargingComm
 from modules.comms.depth_forwarder import DepthReader
 
 from modules.perception.camera import AprilTagCameraInterface
+from modules.perception.marker_tracker import ArucoMarkerTracker
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
 from modules.tasks.charging_task import ChargingTask
@@ -38,6 +39,16 @@ if not os.path.exists("config/settings.yaml"):
 # ✅ 日志设置
 logging.basicConfig(level=logging.INFO)
 
+
+def create_main_camera(config, surface):
+    """Create the runtime vision interface from settings.yaml."""
+    vision_config = config.get("vision_tracking", {})
+    marker_type = vision_config.get("marker_type", "apriltag").lower()
+    if marker_type == "aruco":
+        return ArucoMarkerTracker(vision_config, surface=surface)
+    return AprilTagCameraInterface(config["AprilTagCamera_Main"], surface=surface)
+
+
 def main():
     # def handle_surface_command(msg):
     #     print(f"✅ 收到指令: {msg}")
@@ -56,7 +67,7 @@ def main():
         config = yaml.safe_load(f)
     # === 1. 初始化通信模块 ===
     surface = SurfaceComm({"host": "0.0.0.0", "port": 9002})  # TCP 接收来自上位机的控制指令
-    camera = AprilTagCameraInterface(config["AprilTagCamera_Main"], surface=surface)  # AprilTag 摄像头接口
+    camera = create_main_camera(config, surface=surface)
     camera.start()
 
     # reader = DepthReader(serial_port="/dev/ttyDEPTH", baudrate=19200)
@@ -75,15 +86,21 @@ def main():
     openmv_receiver = OpenMVReceiver(config["openmv_receiver"], surface=surface)
     # openmv_receiver.start()
 
-    # === 3. 状态上报模块 ===
-    reporter = StatusReporter(surface=surface, pixhawk=pixhawk, fish=fish, charger=charger)
-    reporter.start()
-
-    # === 4. 初始化任务调度系统 ===
+    # === 3. 初始化任务调度系统 ===
     scheduler = TaskScheduler()
-    scheduler.register_task("docking", DockingTask, camera=camera, pixhawk=pixhawk)
+    scheduler.register_task(
+        "docking",
+        DockingTask,
+        camera=camera,
+        pixhawk=pixhawk,
+        tracking_config=config.get("vision_tracking", {}),
+    )
     scheduler.register_task("charging", ChargingTask, charging_comm=charger, fish_comm=fish)
     scheduler.register_task("fish_control", FishControlTask, fish_comm=fish)
+
+    # === 4. 状态上报模块 ===
+    reporter = StatusReporter(surface=surface, pixhawk=pixhawk, fish=fish, charger=charger, scheduler=scheduler)
+    reporter.start()
 
     scheduler.start()
 

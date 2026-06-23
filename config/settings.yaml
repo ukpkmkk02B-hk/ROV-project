@@ -34,6 +34,35 @@ AprilTagCamera_Main:
   # 需要根据实际相机进行标定
   # File: rov_project/config/settings.yaml
 
+vision_tracking:
+  marker_type: "aruco"
+  name: "Aruco_Camera_Main"
+  device: "/dev/camera_main"
+  camera_id: 0
+  frame_width: 1920
+  frame_height: 1080
+  dictionary: "DICT_4X4_50"
+  marker_id: 20
+  marker_size_m: 0.04
+  calibration_file: "rov_vision_calib-main/config/calib_underwater_20_50cm_1080p.yaml"
+  dryrun_log_path: "logs/aruco_tracking_dryrun.csv"
+  min_detections: 3
+  max_lost: 10
+  max_lost_frames: 10
+  corner_refinement: true
+  enable_undistort_preview: false
+  desired_z_m: 0.8
+  max_v_m_s: 0.4
+  max_yaw_rate_deg_s: 25.0
+  kp_lateral: 0.4
+  kp_vertical: 0.3
+  kp_distance: 0.4
+  kp_yaw: 1.0
+  enable_motion: false
+  pre_dock_position_tolerance_m: 0.05
+  pre_dock_distance_tolerance_m: 0.05
+  pre_dock_yaw_tolerance_deg: 5.0
+
 surface_comm:
   host: "0.0.0.0"            # ✅ 本机监听所有网卡
   port: 9002               # ✅ 上位机连接端口

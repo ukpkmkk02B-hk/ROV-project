@@ -1,5 +1,7 @@
 future==1.0.0
 lxml==5.4.0
+numpy>=1.24
+opencv-contrib-python>=4.8
 pymavlink==2.4.47
 pyserial==3.5
 PyYAML==6.0.2
