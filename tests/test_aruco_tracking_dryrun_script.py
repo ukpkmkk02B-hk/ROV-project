@@ -43,6 +43,7 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 duration=60.0,
                 print_interval=0.5,
                 device=None,
+                desired_z=None,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -58,11 +59,28 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 duration=60.0,
                 print_interval=0.5,
                 device="/dev/video0",
+                desired_z=None,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
 
         self.assertEqual(run_dryrun.call_args.kwargs["device_override"], "/dev/video0")
+
+    def test_main_passes_desired_z_override_to_dryrun(self):
+        with patch(
+            "tools.run_aruco_tracking_dryrun.parse_args",
+            return_value=Namespace(
+                config="config/settings.yaml",
+                log="logs/out.csv",
+                duration=60.0,
+                print_interval=0.5,
+                device="/dev/video0",
+                desired_z=0.2,
+            ),
+        ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
+            main()
+
+        self.assertEqual(run_dryrun.call_args.kwargs["desired_z_override"], 0.2)
 
 
 if __name__ == "__main__":

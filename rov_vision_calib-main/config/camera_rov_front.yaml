@@ -1,0 +1,34 @@
+camera:
+  name: rov_front_camera
+  sensor: Sony IMX291
+  interface: USB_UVC
+  device: /dev/video0
+  resolution:
+    width: 1920
+    height: 1080
+  fps: 30
+  backend: v4l2
+  fourcc: MJPG
+
+settings:
+  exposure_mode: manual
+  exposure_value: null
+  gain: null
+  white_balance: manual
+  white_balance_temperature: null
+  focus: fixed_or_locked
+  autofocus: false
+
+housing:
+  type: flat_window
+  material: acrylic_or_unknown
+  thickness_mm: null
+  camera_to_window_mm: null
+  note: camera already fixed in housing
+
+experiment:
+  medium: water
+  pool: small_pool
+  distance_range_m: [0.20, 0.50]
+  calibration_resolution: [1920, 1080]
+  calibration_model: underwater_equivalent_pinhole

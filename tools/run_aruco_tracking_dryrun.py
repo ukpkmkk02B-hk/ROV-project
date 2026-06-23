@@ -2,7 +2,7 @@ import argparse
 import time
 from pathlib import Path
 
-from modules.controller.motion_command import motion_command_from_mapping
+from modules.controller.motion_command import camera_state_to_body_error, motion_command_from_mapping
 from modules.controller.rc_override_mapper import RcOverrideMapper
 from modules.controller.visual_tracking_controller import VisualTrackingController
 from modules.perception.marker_tracker import ArucoMarkerTracker, validate_pose_quality
@@ -57,13 +57,22 @@ def build_controller(config):
     )
 
 
-def run_dryrun(config_path, log_path, duration_s=None, print_interval_s=0.5, device_override=None):
+def run_dryrun(
+    config_path,
+    log_path,
+    duration_s=None,
+    print_interval_s=0.5,
+    device_override=None,
+    desired_z_override=None,
+):
     settings = load_settings(config_path)
     vision_config = dict(settings["vision_tracking"])
     if vision_config.get("marker_type", "aruco").lower() != "aruco":
         raise ValueError("This dry-run tool only supports vision_tracking.marker_type: aruco")
     if device_override:
         vision_config["device"] = device_override
+    if desired_z_override is not None:
+        vision_config["desired_z_m"] = float(desired_z_override)
 
     log_path = resolve_log_path(vision_config, log_path)
     tracker = ArucoMarkerTracker(vision_config)
@@ -95,6 +104,7 @@ def run_dryrun(config_path, log_path, duration_s=None, print_interval_s=0.5, dev
                     has_valid_observation = False
                 state["has_valid_observation"] = has_valid_observation
                 state["valid_observation_count"] = valid_observation_count
+                state.update(camera_state_to_body_error(state, vision_config))
 
                 command = controller.compute_command(state) if state.get("status") != "lost" else controller.neutral_command()
                 pre_dock_ready = controller.is_pre_dock_ready(state) if state.get("status") != "lost" else False
@@ -129,6 +139,7 @@ def parse_args():
     parser.add_argument("--duration", type=float, default=None, help="Optional duration in seconds")
     parser.add_argument("--print-interval", type=float, default=0.5, help="Console print interval in seconds")
     parser.add_argument("--device", default=None, help="Optional camera device override, for example /dev/video0")
+    parser.add_argument("--desired-z", type=float, default=None, help="Temporary desired distance in meters for dry-run")
     return parser.parse_args()
 
 
@@ -140,6 +151,7 @@ def main():
         duration_s=args.duration,
         print_interval_s=args.print_interval,
         device_override=args.device,
+        desired_z_override=args.desired_z,
     )
 
 

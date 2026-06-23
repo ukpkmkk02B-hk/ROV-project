@@ -8,6 +8,11 @@ RANGE_FIELDS = [
     "pose_yaw",
     "filtered_z",
     "filtered_yaw",
+    "body_forward_m",
+    "body_right_m",
+    "body_up_m",
+    "yaw_raw_deg",
+    "yaw_error_deg",
     "cmd_vx",
     "cmd_vy",
     "cmd_vz",
@@ -54,13 +59,14 @@ def analyze_tracking_log(path):
 
     sample_count = len(rows)
     detected_count = sum(1 for row in rows if _truthy(row.get("detected")))
-    valid_pose_count = sum(1 for row in rows if _truthy(row.get("pose_valid")))
+    valid_pose_count = sum(1 for row in rows if _truthy(row.get("detected")) and _truthy(row.get("pose_valid")))
     pre_dock_ready_count = sum(1 for row in rows if _truthy(row.get("pre_dock_ready")))
     status_counts = Counter(row.get("tracking_status", "") or "unknown" for row in rows)
     reject_reason_counts = Counter(
         row.get("reject_reason", "") or "none"
         for row in rows
-        if not _truthy(row.get("pose_valid")) and (row.get("reject_reason", "") or "")
+        if not (_truthy(row.get("detected")) and _truthy(row.get("pose_valid")))
+        and (row.get("reject_reason", "") or "")
     )
     max_lost_frames = max((_as_int(row.get("lost_frames")) for row in rows), default=0)
 

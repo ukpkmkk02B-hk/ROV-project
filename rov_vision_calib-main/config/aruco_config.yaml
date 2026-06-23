@@ -1,0 +1,20 @@
+aruco:
+  dictionary: DICT_4X4_50
+  marker_id: 20
+  marker_size_m: 0.04
+
+camera_calibration:
+  file: config/calib_underwater_20_50cm_1080p.yaml
+  allow_not_calibrated: false
+
+detection:
+  corner_refinement: true
+  min_detect_rate: 0.90
+  draw_axes_length_m: 0.05
+
+validation:
+  distance_range_m: [0.20, 0.50]
+  expected_marker_size_m: 0.04
+  output_units: m_deg_px
+  default_frame_count: 300
+  direction_pixel_tolerance: 40

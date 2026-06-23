@@ -5,6 +5,7 @@ from modules.controller.motion_command import (
     MotionCommand,
     camera_state_to_body_error,
     motion_command_from_mapping,
+    normalize_angle_deg,
 )
 from modules.controller.rc_override_mapper import RcOverrideMapper
 
@@ -43,6 +44,19 @@ class MotionCommandTests(unittest.TestCase):
         self.assertEqual(command.right_m_s, 0.2)
         self.assertEqual(command.up_m_s, -0.3)
         self.assertEqual(command.yaw_rate_rad_s, 0.4)
+
+    def test_camera_state_to_body_error_applies_yaw_offset_and_normalization(self):
+        body = camera_state_to_body_error(
+            {"x": 0.0, "y": 0.0, "z": 0.2, "yaw": 170.0},
+            {"camera_to_body": {"yaw_offset_deg": -180.0, "yaw_normalize": True}},
+        )
+
+        self.assertEqual(body["yaw_raw_deg"], 170.0)
+        self.assertEqual(body["yaw_error_deg"], -10.0)
+
+    def test_normalize_angle_deg_wraps_to_signed_range(self):
+        self.assertEqual(normalize_angle_deg(190.0), -170.0)
+        self.assertEqual(normalize_angle_deg(-190.0), 170.0)
 
 
 class RcOverrideMapperTests(unittest.TestCase):

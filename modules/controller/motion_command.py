@@ -10,6 +10,16 @@ def _as_float(value, default=0.0):
         return float(default)
 
 
+def normalize_angle_deg(value):
+    """Wrap an angle to [-180, 180) degrees."""
+    angle = _as_float(value)
+    while angle >= 180.0:
+        angle -= 360.0
+    while angle < -180.0:
+        angle += 360.0
+    return angle
+
+
 @dataclass(frozen=True)
 class MotionCommand:
     """ROV body-frame motion command used by visual tracking."""
@@ -85,5 +95,12 @@ def camera_state_to_body_error(state, config=None):
     body["forward_m"] = mapped_value("forward", "z", 1.0)
     body["right_m"] = mapped_value("right", "x", 1.0)
     body["up_m"] = mapped_value("up", "y", -1.0)
-    body["yaw_error_deg"] = _as_float(state.get("yaw")) * _as_float(mapping.get("yaw_sign", 1.0), 1.0)
+    yaw_raw = _as_float(state.get("yaw"))
+    yaw_sign = _as_float(mapping.get("yaw_sign", 1.0), 1.0)
+    yaw_offset = _as_float(mapping.get("yaw_offset_deg", 0.0), 0.0)
+    yaw_error = yaw_raw * yaw_sign + yaw_offset
+    if bool(mapping.get("yaw_normalize", True)):
+        yaw_error = normalize_angle_deg(yaw_error)
+    body["yaw_raw_deg"] = yaw_raw
+    body["yaw_error_deg"] = yaw_error
     return body

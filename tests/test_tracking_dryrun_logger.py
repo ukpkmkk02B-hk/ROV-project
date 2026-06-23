@@ -26,7 +26,19 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "pose_valid": True,
                     "reject_reason": "",
                 },
-                filtered_state={"x": 0.11, "y": -0.19, "z": 0.81, "yaw": 2.5, "status": "tracking", "lost_frames": 0},
+                filtered_state={
+                    "x": 0.11,
+                    "y": -0.19,
+                    "z": 0.81,
+                    "yaw": 2.5,
+                    "status": "tracking",
+                    "lost_frames": 0,
+                    "forward_m": 0.81,
+                    "right_m": 0.11,
+                    "up_m": 0.19,
+                    "yaw_raw_deg": 182.5,
+                    "yaw_error_deg": 2.5,
+                },
                 control_cmd={
                     "forward_m_s": 0.01,
                     "right_m_s": -0.02,
@@ -62,6 +74,11 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["pre_dock_ready"], "1")
         self.assertEqual(row["pose_x"], "0.1")
         self.assertEqual(row["filtered_x"], "0.11")
+        self.assertEqual(row["body_forward_m"], "0.81")
+        self.assertEqual(row["body_right_m"], "0.11")
+        self.assertEqual(row["body_up_m"], "0.19")
+        self.assertEqual(row["yaw_raw_deg"], "182.5")
+        self.assertEqual(row["yaw_error_deg"], "2.5")
         self.assertEqual(row["cmd_yaw_rate"], "-0.04")
         self.assertEqual(row["output_backend"], "mavlink_velocity")
         self.assertEqual(row["motion_forward_m_s"], "0.01")
@@ -78,6 +95,39 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["reprojection_error_px"], "1.3")
         self.assertEqual(row["pose_valid"], "1")
         self.assertEqual(row["reject_reason"], "")
+
+    def test_log_sample_does_not_copy_stale_pose_diagnostics_without_pose(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "tracking.csv"
+            logger = TrackingDryRunLogger(log_path)
+
+            logger.log_sample(
+                pose=None,
+                filtered_state={"status": "lost", "lost_frames": 12},
+                diagnostics={
+                    "device": "/dev/video0",
+                    "frame_width": 1920,
+                    "frame_height": 1080,
+                    "detected_ids": [],
+                    "rejected_count": 7,
+                    "marker_pixel_size_px": 279.2,
+                    "reprojection_error_px": 2.4,
+                    "pose_valid": True,
+                    "reject_reason": "no_marker",
+                },
+                timestamp=200.0,
+            )
+            logger.close()
+
+            with open(log_path, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+
+        row = rows[0]
+        self.assertEqual(row["detected"], "0")
+        self.assertEqual(row["pose_valid"], "0")
+        self.assertEqual(row["reject_reason"], "no_marker")
+        self.assertEqual(row["marker_pixel_size_px"], "")
+        self.assertEqual(row["reprojection_error_px"], "")
 
 
 if __name__ == "__main__":

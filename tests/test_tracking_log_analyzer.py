@@ -31,6 +31,8 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "pose_yaw": "10.0",
                         "filtered_z": "1.15",
                         "filtered_yaw": "8.0",
+                        "body_forward_m": "1.15",
+                        "yaw_error_deg": "8.0",
                         "cmd_vx": "0.16",
                         "cmd_vy": "-0.02",
                         "cmd_vz": "0.01",
@@ -88,24 +90,35 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "pose_valid": "0",
                         "reject_reason": "no_pose",
                     },
+                    {
+                        "timestamp": "1.4",
+                        "detected": "0",
+                        "tracking_status": "predicted",
+                        "lost_frames": "1",
+                        "pre_dock_ready": "0",
+                        "pose_valid": "1",
+                        "reject_reason": "",
+                    },
                 ],
             )
 
             summary = analyze_tracking_log(log_path)
 
-        self.assertEqual(summary["sample_count"], 4)
+        self.assertEqual(summary["sample_count"], 5)
         self.assertEqual(summary["detected_count"], 2)
-        self.assertAlmostEqual(summary["detected_rate"], 0.5)
+        self.assertAlmostEqual(summary["detected_rate"], 0.4)
         self.assertEqual(summary["status_counts"]["tracking"], 2)
-        self.assertEqual(summary["status_counts"]["predicted"], 1)
+        self.assertEqual(summary["status_counts"]["predicted"], 2)
         self.assertEqual(summary["status_counts"]["lost"], 1)
         self.assertEqual(summary["pre_dock_ready_count"], 1)
         self.assertEqual(summary["max_lost_frames"], 10)
         self.assertEqual(summary["valid_pose_count"], 1)
-        self.assertAlmostEqual(summary["valid_pose_rate"], 0.25)
+        self.assertAlmostEqual(summary["valid_pose_rate"], 0.2)
         self.assertEqual(summary["reject_reason_counts"]["no_pose"], 2)
         self.assertEqual(summary["reject_reason_counts"]["reprojection_error_too_high"], 1)
         self.assertEqual(summary["ranges"]["filtered_z"], {"min": 0.82, "max": 1.15})
+        self.assertEqual(summary["ranges"]["body_forward_m"], {"min": 1.15, "max": 1.15})
+        self.assertEqual(summary["ranges"]["yaw_error_deg"], {"min": 8.0, "max": 8.0})
         self.assertEqual(summary["ranges"]["cmd_vx"], {"min": 0.0, "max": 0.16})
         self.assertEqual(summary["ranges"]["marker_pixel_size_px"], {"min": 84.0, "max": 85.0})
         self.assertEqual(summary["ranges"]["reprojection_error_px"], {"min": 1.2, "max": 8.5})

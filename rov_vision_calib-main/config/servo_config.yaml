@@ -1,0 +1,37 @@
+visual_servo:
+  image_width: 1920
+  image_height: 1080
+  desired_u: 960
+  desired_v: 540
+  desired_z_m: 0.40
+  desired_yaw_deg: 0.0
+
+control:
+  type: P
+  frequency_hz: 10
+  dry_run_default: true
+
+gains:
+  kx: 0.03
+  ky: 0.03
+  kz: 80.0
+  kyaw: 1.0
+
+rc:
+  neutral: 1500
+  max_delta_initial: 50
+  max_delta_safe: 100
+  channels:
+    lateral: 1
+    vertical: 2
+    forward: 3
+    yaw: 4
+
+filter:
+  enable_moving_average: true
+  window_size: 5
+
+safety:
+  require_marker: true
+  lost_marker_timeout_s: 1.0
+  command_when_lost: neutral

@@ -1,0 +1,157 @@
+calibration:
+  status: calibrated
+  model: underwater_equivalent_pinhole
+  date: '2026-05-21T15:41:35'
+  camera_name: rov_front_camera
+  camera_sensor: Sony IMX291
+  device_node: /dev/video0
+  board_type: chessboard
+  board_squares:
+  - 9
+  - 12
+  inner_corners:
+  - 8
+  - 11
+  square_size_m: 0.015
+  distance_range_m:
+  - 0.2
+  - 0.5
+  image_width: 1920
+  image_height: 1080
+  total_images: 52
+  valid_images: 39
+  rejected_images: 13
+  rejected_list:
+  - img: calib_001_2026_05_21_142939.png
+    reason: Chessboard corners not found
+  - img: calib_002_2026_05_21_143030.png
+    reason: Chessboard corners not found
+  - img: calib_004_2026_05_21_144853.png
+    reason: Chessboard corners not found
+  - img: calib_005_2026_05_21_144854.png
+    reason: Chessboard corners not found
+  - img: calib_006_2026_05_21_144856.png
+    reason: Chessboard corners not found
+  - img: calib_007_2026_05_21_145334.png
+    reason: Chessboard corners not found
+  - img: calib_009_2026_05_21_145344.png
+    reason: Chessboard corners not found
+  - img: calib_010_2026_05_21_145348.png
+    reason: Chessboard corners not found
+  - img: calib_012_2026_05_21_145401.png
+    reason: Chessboard corners not found
+  - img: calib_013_2026_05_21_145408.png
+    reason: Chessboard corners not found
+  - img: calib_020_2026_05_21_150107.png
+    reason: Chessboard corners not found
+  - img: calib_034_2026_05_21_150320.png
+    reason: Chessboard corners not found
+  - img: calib_036_2026_05_21_150329.png
+    reason: Chessboard corners not found
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+  - 973.7649518784749
+  - 0.0
+  - 930.4814756204773
+  - 0.0
+  - 972.9039215754821
+  - 579.7739011481739
+  - 0.0
+  - 0.0
+  - 1.0
+distortion_coefficients:
+  model: plumb_bob
+  data:
+  - 0.3634671457311914
+  - 0.13385645441375527
+  - 0.005650150859316514
+  - -0.0027324899406208987
+  - 0.03195196508437517
+accuracy_evaluation:
+  overall_reprojection_error_px: 1.040365219880373
+  opencv_rms_px: 1.4607014199587225
+  per_image_reprojection_error_px:
+  - img: calib_003_2026_05_21_144413.png
+    error_px: 1.9925605058670044
+  - img: calib_008_2026_05_21_145336.png
+    error_px: 0.717384934425354
+  - img: calib_011_2026_05_21_145353.png
+    error_px: 0.39006415009498596
+  - img: calib_014_2026_05_21_145424.png
+    error_px: 0.9022952318191528
+  - img: calib_015_2026_05_21_145443.png
+    error_px: 0.6815174221992493
+  - img: calib_016_2026_05_21_145451.png
+    error_px: 5.976207733154297
+  - img: calib_017_2026_05_21_145510.png
+    error_px: 3.727250337600708
+  - img: calib_018_2026_05_21_150055.png
+    error_px: 0.7289536595344543
+  - img: calib_019_2026_05_21_150101.png
+    error_px: 0.34061264991760254
+  - img: calib_021_2026_05_21_150115.png
+    error_px: 1.0212671756744385
+  - img: calib_022_2026_05_21_150120.png
+    error_px: 0.7179174423217773
+  - img: calib_023_2026_05_21_150124.png
+    error_px: 0.3485643267631531
+  - img: calib_024_2026_05_21_150130.png
+    error_px: 0.6036199331283569
+  - img: calib_025_2026_05_21_150143.png
+    error_px: 0.36531516909599304
+  - img: calib_026_2026_05_21_150147.png
+    error_px: 0.6171892881393433
+  - img: calib_027_2026_05_21_150154.png
+    error_px: 0.4125630259513855
+  - img: calib_028_2026_05_21_150205.png
+    error_px: 0.3240478038787842
+  - img: calib_029_2026_05_21_150224.png
+    error_px: 0.38910192251205444
+  - img: calib_030_2026_05_21_150231.png
+    error_px: 0.860927402973175
+  - img: calib_031_2026_05_21_150240.png
+    error_px: 1.956903100013733
+  - img: calib_032_2026_05_21_150250.png
+    error_px: 1.6830731630325317
+  - img: calib_033_2026_05_21_150254.png
+    error_px: 0.6550518274307251
+  - img: calib_035_2026_05_21_150325.png
+    error_px: 0.6153136491775513
+  - img: calib_037_2026_05_21_150335.png
+    error_px: 1.4603707790374756
+  - img: calib_038_2026_05_21_150349.png
+    error_px: 0.8708980083465576
+  - img: calib_039_2026_05_21_150353.png
+    error_px: 0.41108548641204834
+  - img: calib_040_2026_05_21_150358.png
+    error_px: 1.2349326610565186
+  - img: calib_041_2026_05_21_150402.png
+    error_px: 1.6601030826568604
+  - img: calib_042_2026_05_21_150522.png
+    error_px: 0.6849947571754456
+  - img: calib_043_2026_05_21_150526.png
+    error_px: 0.7556983232498169
+  - img: calib_044_2026_05_21_150531.png
+    error_px: 0.3728378117084503
+  - img: calib_045_2026_05_21_150536.png
+    error_px: 0.17965984344482422
+  - img: calib_046_2026_05_21_150542.png
+    error_px: 1.202413558959961
+  - img: calib_047_2026_05_21_150547.png
+    error_px: 0.8595685958862305
+  - img: calib_048_2026_05_21_150551.png
+    error_px: 0.6468445062637329
+  - img: calib_049_2026_05_21_150558.png
+    error_px: 1.4940522909164429
+  - img: calib_050_2026_05_21_150606.png
+    error_px: 0.9311769604682922
+  - img: calib_051_2026_05_21_150643.png
+    error_px: 0.9279040694236755
+  - img: calib_052_2026_05_21_150647.png
+    error_px: 0.854000985622406
+notes:
+- first underwater equivalent pinhole calibration template
+- camera fixed inside housing
+- suitable only for 20-50 cm small pool test

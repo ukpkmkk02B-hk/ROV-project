@@ -31,6 +31,11 @@ class TrackingDryRunLogger:
         "filtered_y",
         "filtered_z",
         "filtered_yaw",
+        "body_forward_m",
+        "body_right_m",
+        "body_up_m",
+        "yaw_raw_deg",
+        "yaw_error_deg",
         "cmd_vx",
         "cmd_vy",
         "cmd_vz",
@@ -83,11 +88,13 @@ class TrackingDryRunLogger:
         detected_ids = diagnostics.get("detected_ids", "")
         if isinstance(detected_ids, (list, tuple)):
             detected_ids = ",".join(str(v) for v in detected_ids)
+        detected = bool(pose) and bool(pose.get("detected", True))
+        pose_valid = detected and bool(pose.get("pose_valid", False))
 
         row = {
             "timestamp": timestamp,
             "marker_id": pose.get("id", ""),
-            "detected": 1 if pose.get("detected") else 0,
+            "detected": 1 if detected else 0,
             "tracking_status": filtered_state.get("status", ""),
             "lost_frames": filtered_state.get("lost_frames", ""),
             "pre_dock_ready": 1 if pre_dock_ready else 0,
@@ -104,14 +111,19 @@ class TrackingDryRunLogger:
             "frame_height": diagnostics.get("frame_height", ""),
             "detected_ids": detected_ids,
             "rejected_count": diagnostics.get("rejected_count", ""),
-            "marker_pixel_size_px": pose.get("marker_pixel_size_px", diagnostics.get("marker_pixel_size_px", "")),
-            "reprojection_error_px": pose.get("reprojection_error_px", diagnostics.get("reprojection_error_px", "")),
-            "pose_valid": 1 if pose.get("pose_valid", diagnostics.get("pose_valid", False)) else 0,
+            "marker_pixel_size_px": pose.get("marker_pixel_size_px", "") if detected else "",
+            "reprojection_error_px": pose.get("reprojection_error_px", "") if detected else "",
+            "pose_valid": 1 if pose_valid else 0,
             "reject_reason": pose.get("reject_reason", diagnostics.get("reject_reason", "")),
             "filtered_x": filtered_state.get("x", ""),
             "filtered_y": filtered_state.get("y", ""),
             "filtered_z": filtered_state.get("z", ""),
             "filtered_yaw": filtered_state.get("yaw", ""),
+            "body_forward_m": filtered_state.get("forward_m", ""),
+            "body_right_m": filtered_state.get("right_m", ""),
+            "body_up_m": filtered_state.get("up_m", ""),
+            "yaw_raw_deg": filtered_state.get("yaw_raw_deg", ""),
+            "yaw_error_deg": filtered_state.get("yaw_error_deg", ""),
             "cmd_vx": control_cmd.get("vx", ""),
             "cmd_vy": control_cmd.get("vy", ""),
             "cmd_vz": control_cmd.get("vz", ""),
