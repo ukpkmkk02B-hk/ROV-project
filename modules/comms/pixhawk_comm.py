@@ -5,7 +5,7 @@ import time
 import queue
 import logging
 from pymavlink import mavutil
-from modules.controller.motion_command import motion_command_from_mapping
+from modules.comms.mavlink_velocity import send_body_velocity_command
 
 try:
     from .comm_base import CommunicationBase
@@ -302,45 +302,12 @@ class PixhawkComm(CommunicationBase):
         
     def send_velocity_command(self, vel_cmd):
         """发送速度控制命令 - ArduSub专用"""
-        # ArduSub body-frame NED: X forward, Y right, Z down.
-        frame = getattr(mavutil.mavlink, "MAV_FRAME_BODY_NED", mavutil.mavlink.MAV_FRAME_LOCAL_NED)
-        motion = motion_command_from_mapping(vel_cmd)
-        mav_velocity = motion.as_mavlink_body_ned()
-        
-        # 坐标系掩码: 忽略位置和加速计，只控制速度
-        # 位掩码: 忽略位置和加速计，控制速度
-        ignore_mask = (
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_X_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_Y_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE |
-            getattr(mavutil.mavlink, "POSITION_TARGET_TYPEMASK_YAW_IGNORE", 0)
-        )
-        
-        # 水下发控的特殊处理：
-        # Z轴向上为负（水深方向）
-        # 典型ArduSub速度范围：-0.5 到 0.5 m/s
-        
-        # 发送位置目标控制消息
-        self.master.mav.set_position_target_local_ned_send(
-            0,  # time_boot_ms (当前时间，0表示忽略)
+        mav_velocity = send_body_velocity_command(
+            self.master,
             self.target_system,
             self.target_component,
-            frame,
-            ignore_mask,  # 控制标志
-            0,  # X位置 (不使用)
-            0,  # Y位置 (不使用)
-            0,  # Z位置 (不使用)
-            mav_velocity["vx"],  # X velocity, forward
-            mav_velocity["vy"],  # Y velocity, right
-            mav_velocity["vz"],  # Z velocity, down
-            0,  # X方向加速度 (不使用)
-            0,  # Y方向加速度 (不使用)
-            0,  # Z方向加速度 (不使用)
-            0,  # 偏航角 (不使用)
-            mav_velocity["yaw_rate"]   # yaw rate, rad/s
+            vel_cmd,
+            mavutil_module=mavutil,
         )
         self.logger.debug(
             f"发送速度命令: Vx={mav_velocity['vx']}, Vy={mav_velocity['vy']}, Vz={mav_velocity['vz']}"
