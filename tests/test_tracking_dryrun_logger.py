@@ -56,7 +56,18 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "frame_height": 1080,
                     "detected_ids": [20],
                     "rejected_count": 4,
+                    "tracker_frames_processed": 30,
+                    "tracker_marker_frames": 28,
+                    "tracker_target_frames": 27,
+                    "tracker_valid_pose_frames": 26,
+                    "tracker_invalid_pose_frames": 1,
+                    "tracker_no_marker_frames": 2,
+                    "tracker_target_id_missing_frames": 1,
+                    "tracker_pnp_failed_frames": 0,
+                    "tracker_quality_rejected_frames": 1,
                 },
+                new_pose=True,
+                latest_pose_age_s=0.012,
                 output_backend="mavlink_velocity",
                 mavlink_command={"vx": 0.01, "vy": -0.02, "vz": -0.03, "yaw_rate": -0.04},
                 rc_override={"ch1": 1500, "ch2": 1500, "ch3": 1500, "ch4": 1500},
@@ -95,6 +106,17 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["reprojection_error_px"], "1.3")
         self.assertEqual(row["pose_valid"], "1")
         self.assertEqual(row["reject_reason"], "")
+        self.assertEqual(row["new_pose"], "1")
+        self.assertEqual(row["latest_pose_age_s"], "0.012")
+        self.assertEqual(row["tracker_frames_processed"], "30")
+        self.assertEqual(row["tracker_marker_frames"], "28")
+        self.assertEqual(row["tracker_target_frames"], "27")
+        self.assertEqual(row["tracker_valid_pose_frames"], "26")
+        self.assertEqual(row["tracker_invalid_pose_frames"], "1")
+        self.assertEqual(row["tracker_no_marker_frames"], "2")
+        self.assertEqual(row["tracker_target_id_missing_frames"], "1")
+        self.assertEqual(row["tracker_pnp_failed_frames"], "0")
+        self.assertEqual(row["tracker_quality_rejected_frames"], "1")
 
     def test_log_sample_does_not_copy_stale_pose_diagnostics_without_pose(self):
         with tempfile.TemporaryDirectory() as tmpdir:

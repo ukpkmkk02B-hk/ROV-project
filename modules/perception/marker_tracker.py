@@ -130,6 +130,61 @@ def validate_pose_quality(pose, config):
     return _set_pose_quality(pose, True)
 
 
+TRACKER_COUNT_FIELDS = [
+    "tracker_frames_processed",
+    "tracker_marker_frames",
+    "tracker_target_frames",
+    "tracker_valid_pose_frames",
+    "tracker_invalid_pose_frames",
+    "tracker_no_marker_frames",
+    "tracker_target_id_missing_frames",
+    "tracker_pnp_failed_frames",
+    "tracker_quality_rejected_frames",
+    "tracker_capture_failed_frames",
+]
+
+
+def new_tracker_stats():
+    stats = {field: 0 for field in TRACKER_COUNT_FIELDS}
+    stats["tracker_last_frame_timestamp"] = ""
+    stats["tracker_last_valid_pose_timestamp"] = ""
+    return stats
+
+
+def update_tracker_stats(stats, result, detected_ids=None, target_id=None, timestamp=None):
+    detected_ids = [] if detected_ids is None else [int(v) for v in detected_ids]
+    timestamp = "" if timestamp is None else float(timestamp)
+
+    if result == "capture_failed":
+        stats["tracker_capture_failed_frames"] += 1
+        return stats
+
+    stats["tracker_frames_processed"] += 1
+    stats["tracker_last_frame_timestamp"] = timestamp
+
+    if detected_ids:
+        stats["tracker_marker_frames"] += 1
+    if target_id is not None and int(target_id) in detected_ids:
+        stats["tracker_target_frames"] += 1
+
+    if result == "valid_pose":
+        stats["tracker_valid_pose_frames"] += 1
+        stats["tracker_last_valid_pose_timestamp"] = timestamp
+    elif result in {"quality_rejected", "pnp_failed"}:
+        stats["tracker_invalid_pose_frames"] += 1
+
+    if result == "no_marker":
+        stats["tracker_no_marker_frames"] += 1
+    elif result == "target_id_not_found":
+        stats["tracker_target_id_missing_frames"] += 1
+    elif result == "pnp_failed":
+        stats["tracker_pnp_failed_frames"] += 1
+    elif result == "quality_rejected":
+        stats["tracker_quality_rejected_frames"] += 1
+
+    return stats
+
+
 def _load_yaml(path):
     import yaml
 
@@ -246,6 +301,8 @@ class ArucoMarkerTracker(CommunicationBase):
             "reject_reason": "not_started",
         }
         self._diagnostics_lock = threading.Lock()
+        self.tracker_stats = new_tracker_stats()
+        self._stats_lock = threading.Lock()
 
         self.camera_matrix, self.dist_coeffs = load_camera_parameters(config)
         self.object_points = build_square_object_points(self.marker_size_m)
@@ -309,6 +366,7 @@ class ArucoMarkerTracker(CommunicationBase):
             ok, frame = self.cap.read()
             if not ok:
                 self.logger.warning("ArUco image capture failed")
+                self._record_frame_result("capture_failed", [], time.time())
                 self._update_diagnostics(reject_reason="capture_failed")
                 time.sleep(0.02)
                 continue
@@ -356,14 +414,27 @@ class ArucoMarkerTracker(CommunicationBase):
             diagnostics.update(updates)
             self.latest_diagnostics = diagnostics
 
+    def _record_frame_result(self, result, detected_ids=None, timestamp=None):
+        with self._stats_lock:
+            update_tracker_stats(
+                self.tracker_stats,
+                result,
+                detected_ids=detected_ids,
+                target_id=self.marker_id,
+                timestamp=timestamp,
+            )
+
     def get_diagnostics(self):
         with self._diagnostics_lock:
             diagnostics = dict(self.latest_diagnostics)
+        with self._stats_lock:
+            diagnostics.update(dict(self.tracker_stats))
         if isinstance(diagnostics.get("detected_ids"), list):
             diagnostics["detected_ids"] = list(diagnostics["detected_ids"])
         return diagnostics
 
     def process_frame(self, frame, timestamp=None):
+        timestamp = time.time() if timestamp is None else timestamp
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = self.detector.detectMarkers(gray)
         detected_ids = [] if ids is None else [int(v) for v in ids.flatten()]
@@ -375,6 +446,7 @@ class ArucoMarkerTracker(CommunicationBase):
             reject_reason="no_marker",
         )
         if ids is None:
+            self._record_frame_result("no_marker", detected_ids, timestamp)
             return None
 
         for marker_corners, found_id in zip(corners, ids.flatten()):
@@ -390,6 +462,7 @@ class ArucoMarkerTracker(CommunicationBase):
                 flags=cv2.SOLVEPNP_IPPE_SQUARE,
             )
             if not ok:
+                self._record_frame_result("pnp_failed", detected_ids, timestamp)
                 self._update_diagnostics(reject_reason="pnp_failed")
                 return None
 
@@ -409,12 +482,14 @@ class ArucoMarkerTracker(CommunicationBase):
                 tvec=tvec,
                 rvec=rvec,
                 center=center,
-                timestamp=time.time() if timestamp is None else timestamp,
+                timestamp=timestamp,
                 euler_deg=rotation_matrix_to_euler_deg(rotation),
             )
             pose["marker_pixel_size_px"] = marker_pixel_size
             pose["reprojection_error_px"] = reprojection_error
             validate_pose_quality(pose, self.config)
+            result = "valid_pose" if pose["pose_valid"] else "quality_rejected"
+            self._record_frame_result(result, detected_ids, timestamp)
             self._update_diagnostics(
                 marker_pixel_size_px=marker_pixel_size,
                 reprojection_error_px=reprojection_error,
@@ -423,6 +498,7 @@ class ArucoMarkerTracker(CommunicationBase):
             )
             return pose
 
+        self._record_frame_result("target_id_not_found", detected_ids, timestamp)
         self._update_diagnostics(reject_reason="target_id_not_found")
         return None
 

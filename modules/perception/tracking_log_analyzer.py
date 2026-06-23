@@ -3,7 +3,7 @@ from collections import Counter
 from pathlib import Path
 
 
-RANGE_FIELDS = [
+VALID_POSE_RANGE_FIELDS = [
     "pose_z",
     "pose_yaw",
     "filtered_z",
@@ -13,6 +13,11 @@ RANGE_FIELDS = [
     "body_up_m",
     "yaw_raw_deg",
     "yaw_error_deg",
+    "marker_pixel_size_px",
+    "reprojection_error_px",
+]
+
+ALL_SAMPLE_RANGE_FIELDS = [
     "cmd_vx",
     "cmd_vy",
     "cmd_vz",
@@ -25,8 +30,19 @@ RANGE_FIELDS = [
     "mavlink_vy",
     "mavlink_vz",
     "mavlink_yaw_rate",
-    "marker_pixel_size_px",
-    "reprojection_error_px",
+]
+
+TRACKER_COUNT_FIELDS = [
+    "tracker_frames_processed",
+    "tracker_marker_frames",
+    "tracker_target_frames",
+    "tracker_valid_pose_frames",
+    "tracker_invalid_pose_frames",
+    "tracker_no_marker_frames",
+    "tracker_target_id_missing_frames",
+    "tracker_pnp_failed_frames",
+    "tracker_quality_rejected_frames",
+    "tracker_capture_failed_frames",
 ]
 
 
@@ -52,6 +68,21 @@ def _truthy(value):
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
+def _field_range(rows, field):
+    values = [_as_float(row.get(field)) for row in rows]
+    values = [value for value in values if value is not None]
+    if not values:
+        return None
+    return {"min": min(values), "max": max(values)}
+
+
+def _last_counter(rows, field):
+    for row in reversed(rows):
+        if row.get(field) not in (None, ""):
+            return _as_int(row.get(field))
+    return 0
+
+
 def analyze_tracking_log(path):
     path = Path(path)
     with open(path, newline="", encoding="utf-8") as f:
@@ -71,13 +102,27 @@ def analyze_tracking_log(path):
     max_lost_frames = max((_as_int(row.get("lost_frames")) for row in rows), default=0)
 
     ranges = {}
-    for field in RANGE_FIELDS:
-        values = [_as_float(row.get(field)) for row in rows]
-        values = [value for value in values if value is not None]
-        if values:
-            ranges[field] = {"min": min(values), "max": max(values)}
+    valid_pose_rows = [row for row in rows if _truthy(row.get("detected")) and _truthy(row.get("pose_valid"))]
+    for field in VALID_POSE_RANGE_FIELDS:
+        field_range = _field_range(valid_pose_rows, field)
+        if field_range:
+            ranges[field] = field_range
+    for field in ALL_SAMPLE_RANGE_FIELDS:
+        field_range = _field_range(rows, field)
+        if field_range:
+            ranges[field] = field_range
 
-    return {
+    tracker_counts = {field: _last_counter(rows, field) for field in TRACKER_COUNT_FIELDS}
+    tracker_frames = tracker_counts["tracker_frames_processed"]
+    tracker_rates = {
+        "tracker_marker_rate": tracker_counts["tracker_marker_frames"] / tracker_frames if tracker_frames else 0.0,
+        "tracker_target_rate": tracker_counts["tracker_target_frames"] / tracker_frames if tracker_frames else 0.0,
+        "tracker_valid_pose_rate": tracker_counts["tracker_valid_pose_frames"] / tracker_frames if tracker_frames else 0.0,
+        "tracker_invalid_pose_rate": tracker_counts["tracker_invalid_pose_frames"] / tracker_frames if tracker_frames else 0.0,
+        "tracker_no_marker_rate": tracker_counts["tracker_no_marker_frames"] / tracker_frames if tracker_frames else 0.0,
+    }
+
+    summary = {
         "path": str(path),
         "sample_count": sample_count,
         "detected_count": detected_count,
@@ -90,6 +135,9 @@ def analyze_tracking_log(path):
         "max_lost_frames": max_lost_frames,
         "ranges": ranges,
     }
+    summary.update(tracker_counts)
+    summary.update(tracker_rates)
+    return summary
 
 
 def format_analysis_report(summary):
@@ -110,6 +158,38 @@ def format_analysis_report(summary):
         lines.append("reject_reasons:")
         for reason, count in sorted(summary.get("reject_reason_counts", {}).items()):
             lines.append(f"  {reason}: {count}")
+
+    if summary.get("tracker_frames_processed"):
+        lines.append("tracker_frame_counts:")
+        lines.append(f"  tracker_frames: {summary.get('tracker_frames_processed', 0)}")
+        lines.append(
+            "  tracker_marker_frames: "
+            f"{summary.get('tracker_marker_frames', 0)} ({summary.get('tracker_marker_rate', 0.0) * 100:.1f}%)"
+        )
+        lines.append(
+            "  tracker_target_frames: "
+            f"{summary.get('tracker_target_frames', 0)} ({summary.get('tracker_target_rate', 0.0) * 100:.1f}%)"
+        )
+        lines.append(
+            "  tracker_valid_pose_frames: "
+            f"{summary.get('tracker_valid_pose_frames', 0)} ({summary.get('tracker_valid_pose_rate', 0.0) * 100:.1f}%)"
+        )
+        lines.append(
+            "  tracker_invalid_pose_frames: "
+            f"{summary.get('tracker_invalid_pose_frames', 0)} ({summary.get('tracker_invalid_pose_rate', 0.0) * 100:.1f}%)"
+        )
+        lines.append(
+            "  tracker_no_marker_frames: "
+            f"{summary.get('tracker_no_marker_frames', 0)} ({summary.get('tracker_no_marker_rate', 0.0) * 100:.1f}%)"
+        )
+        if summary.get("tracker_target_id_missing_frames"):
+            lines.append(f"  tracker_target_id_missing_frames: {summary['tracker_target_id_missing_frames']}")
+        if summary.get("tracker_pnp_failed_frames"):
+            lines.append(f"  tracker_pnp_failed_frames: {summary['tracker_pnp_failed_frames']}")
+        if summary.get("tracker_quality_rejected_frames"):
+            lines.append(f"  tracker_quality_rejected_frames: {summary['tracker_quality_rejected_frames']}")
+        if summary.get("tracker_capture_failed_frames"):
+            lines.append(f"  tracker_capture_failed_frames: {summary['tracker_capture_failed_frames']}")
 
     if summary.get("ranges"):
         lines.append("ranges:")

@@ -44,6 +44,7 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 print_interval=0.5,
                 device=None,
                 desired_z=None,
+                yaw_offset=None,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -60,6 +61,7 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 print_interval=0.5,
                 device="/dev/video0",
                 desired_z=None,
+                yaw_offset=None,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -76,11 +78,29 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 print_interval=0.5,
                 device="/dev/video0",
                 desired_z=0.2,
+                yaw_offset=None,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
 
         self.assertEqual(run_dryrun.call_args.kwargs["desired_z_override"], 0.2)
+
+    def test_main_passes_yaw_offset_override_to_dryrun(self):
+        with patch(
+            "tools.run_aruco_tracking_dryrun.parse_args",
+            return_value=Namespace(
+                config="config/settings.yaml",
+                log="logs/out.csv",
+                duration=60.0,
+                print_interval=0.5,
+                device="/dev/video0",
+                desired_z=0.177,
+                yaw_offset=-90.0,
+            ),
+        ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
+            main()
+
+        self.assertEqual(run_dryrun.call_args.kwargs["yaw_offset_override"], -90.0)
 
 
 if __name__ == "__main__":

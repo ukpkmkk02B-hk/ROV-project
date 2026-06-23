@@ -6,6 +6,8 @@ import numpy as np
 from modules.perception.marker_tracker import (
     build_square_object_points,
     compute_marker_pixel_size,
+    new_tracker_stats,
+    update_tracker_stats,
     make_pose_dict,
     rotation_matrix_to_euler_deg,
     validate_pose_quality,
@@ -123,6 +125,25 @@ class MarkerTrackerHelperTests(unittest.TestCase):
                 self.assertFalse(validate_pose_quality(pose, config))
                 self.assertFalse(pose["pose_valid"])
                 self.assertEqual(pose["reject_reason"], reason)
+
+    def test_tracker_stats_count_frame_level_results(self):
+        stats = new_tracker_stats()
+
+        update_tracker_stats(stats, "no_marker", detected_ids=[], target_id=20, timestamp=1.0)
+        update_tracker_stats(stats, "target_id_not_found", detected_ids=[3], target_id=20, timestamp=2.0)
+        update_tracker_stats(stats, "valid_pose", detected_ids=[20], target_id=20, timestamp=3.0)
+        update_tracker_stats(stats, "quality_rejected", detected_ids=[20], target_id=20, timestamp=4.0)
+
+        self.assertEqual(stats["tracker_frames_processed"], 4)
+        self.assertEqual(stats["tracker_marker_frames"], 3)
+        self.assertEqual(stats["tracker_target_frames"], 2)
+        self.assertEqual(stats["tracker_valid_pose_frames"], 1)
+        self.assertEqual(stats["tracker_invalid_pose_frames"], 1)
+        self.assertEqual(stats["tracker_no_marker_frames"], 1)
+        self.assertEqual(stats["tracker_target_id_missing_frames"], 1)
+        self.assertEqual(stats["tracker_quality_rejected_frames"], 1)
+        self.assertEqual(stats["tracker_last_frame_timestamp"], 4.0)
+        self.assertEqual(stats["tracker_last_valid_pose_timestamp"], 3.0)
 
 
 if __name__ == "__main__":

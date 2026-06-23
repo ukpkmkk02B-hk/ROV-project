@@ -10,11 +10,23 @@ from modules.perception.tracking_dryrun_logger import TrackingDryRunLogger
 from modules.state.state_estimator import ConstantVelocityEKF
 
 
-def format_control_direction(state, command, pose=None):
+def _latest_pose_age_s(diagnostics, now):
+    timestamp = diagnostics.get("tracker_last_valid_pose_timestamp", "")
+    if timestamp in (None, ""):
+        return ""
+    try:
+        return max(0.0, now - float(timestamp))
+    except (TypeError, ValueError):
+        return ""
+
+
+def format_control_direction(state, command, pose=None, new_pose=False, latest_pose_age_s=""):
     pose = pose or {}
+    latest_age = "" if latest_pose_age_s in (None, "") else f"{float(latest_pose_age_s):.3f}s"
     return (
         f"status={state.get('status', 'unknown')}, lost={state.get('lost_frames', '')}, "
-        f"pose_valid={pose.get('pose_valid', False)}, reject={pose.get('reject_reason', '')} | "
+        f"new_pose={bool(new_pose)}, pose_valid={pose.get('pose_valid', False)}, "
+        f"reject={pose.get('reject_reason', '')}, latest_pose_age={latest_age} | "
         f"state x={state.get('x', 0.0):.3f}, y={state.get('y', 0.0):.3f}, "
         f"z={state.get('z', 0.0):.3f}, yaw={state.get('yaw', 0.0):.2f} deg | "
         f"motion forward={command.get('forward_m_s', command.get('vx', 0.0)):+.3f}, "
@@ -64,6 +76,7 @@ def run_dryrun(
     print_interval_s=0.5,
     device_override=None,
     desired_z_override=None,
+    yaw_offset_override=None,
 ):
     settings = load_settings(config_path)
     vision_config = dict(settings["vision_tracking"])
@@ -73,6 +86,10 @@ def run_dryrun(
         vision_config["device"] = device_override
     if desired_z_override is not None:
         vision_config["desired_z_m"] = float(desired_z_override)
+    if yaw_offset_override is not None:
+        camera_to_body = dict(vision_config.get("camera_to_body", {}))
+        camera_to_body["yaw_offset_deg"] = float(yaw_offset_override)
+        vision_config["camera_to_body"] = camera_to_body
 
     log_path = resolve_log_path(vision_config, log_path)
     tracker = ArucoMarkerTracker(vision_config)
@@ -94,6 +111,8 @@ def run_dryrun(
 
                 pose = tracker.get_pose()
                 diagnostics = tracker.get_diagnostics()
+                new_pose = pose is not None
+                latest_pose_age = _latest_pose_age_s(diagnostics, now)
                 if pose is not None and validate_pose_quality(pose, vision_config):
                     valid_observation_count += 1
                     state = estimator.update(pose, pose.get("timestamp", now))
@@ -120,11 +139,22 @@ def run_dryrun(
                     output_backend=output_backend,
                     mavlink_command=mavlink_command,
                     rc_override=rc_override,
+                    new_pose=new_pose,
+                    latest_pose_age_s=latest_pose_age,
                     timestamp=now,
                 )
 
                 if now - last_print >= print_interval_s:
-                    print(format_control_direction(state, command, pose=pose) + f" | pre_dock_ready={pre_dock_ready}")
+                    print(
+                        format_control_direction(
+                            state,
+                            command,
+                            pose=pose,
+                            new_pose=new_pose,
+                            latest_pose_age_s=latest_pose_age,
+                        )
+                        + f" | pre_dock_ready={pre_dock_ready}"
+                    )
                     last_print = now
 
                 time.sleep(0.02)
@@ -140,6 +170,7 @@ def parse_args():
     parser.add_argument("--print-interval", type=float, default=0.5, help="Console print interval in seconds")
     parser.add_argument("--device", default=None, help="Optional camera device override, for example /dev/video0")
     parser.add_argument("--desired-z", type=float, default=None, help="Temporary desired distance in meters for dry-run")
+    parser.add_argument("--yaw-offset", type=float, default=None, help="Temporary yaw offset in degrees for dry-run")
     return parser.parse_args()
 
 
@@ -152,6 +183,7 @@ def main():
         print_interval_s=args.print_interval,
         device_override=args.device,
         desired_z_override=args.desired_z,
+        yaw_offset_override=args.yaw_offset,
     )
 
 
