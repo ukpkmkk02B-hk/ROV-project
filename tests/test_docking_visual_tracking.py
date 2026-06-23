@@ -132,37 +132,55 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(pixhawk.arm_calls, 0)
         self.assertEqual(pixhawk.mode_calls, [])
 
-    def test_predicted_state_does_not_trigger_pre_dock_ready(self):
+    def test_recent_predicted_state_can_trigger_pre_dock_ready(self):
         module = import_docking_with_stubs()
-        pose = {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.8,
-            "roll": 0.0,
-            "pitch": 0.0,
-            "yaw": 0.0,
-            "timestamp": 10.0,
-        }
-        camera = FakeCamera([pose, None])
-        camera.detected = True
         task = module.DockingTask(
-            camera=camera,
+            camera=FakeCamera([]),
             pixhawk=FakePixhawk(),
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
                 "desired_z_m": 0.8,
-                "max_lost_frames": 3,
                 "min_pre_dock_valid_frames": 1,
+                "pre_dock_recent_observation_max_age_s": 0.5,
             },
         )
+        task.valid_observation_count = 1
+        task.last_valid_observation_time = 100.0
 
-        with patch("builtins.print"):
-            task.start()
-            task.run()
-            task.run()
+        with patch.object(module.time, "time", return_value=100.2), patch("builtins.print"):
+            state = task._annotate_state(
+                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "status": "predicted", "lost_frames": 1},
+                has_valid_observation=False,
+            )
+            task._track(state)
 
-        self.assertEqual(task.filtered_state["status"], "predicted")
+        self.assertEqual(task.stage, module.DockingTask.STATE_PRE_ALIGN)
+        self.assertTrue(task.get_status()["pre_dock_ready"])
+
+    def test_expired_predicted_state_does_not_trigger_pre_dock_ready(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "min_pre_dock_valid_frames": 1,
+                "pre_dock_recent_observation_max_age_s": 0.5,
+            },
+        )
+        task.valid_observation_count = 1
+        task.last_valid_observation_time = 100.0
+
+        with patch.object(module.time, "time", return_value=101.0), patch("builtins.print"):
+            state = task._annotate_state(
+                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "status": "predicted", "lost_frames": 1},
+                has_valid_observation=False,
+            )
+            task._track(state)
+
         self.assertFalse(task.get_status()["pre_dock_ready"])
 
     def test_motion_enabled_uses_configured_required_mode(self):

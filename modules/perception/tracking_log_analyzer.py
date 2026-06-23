@@ -92,6 +92,11 @@ def analyze_tracking_log(path):
     detected_count = sum(1 for row in rows if _truthy(row.get("detected")))
     valid_pose_count = sum(1 for row in rows if _truthy(row.get("detected")) and _truthy(row.get("pose_valid")))
     pre_dock_ready_count = sum(1 for row in rows if _truthy(row.get("pre_dock_ready")))
+    pre_dock_block_reason_counts = Counter(
+        row.get("pre_dock_block_reason", "") or "none"
+        for row in rows
+        if not _truthy(row.get("pre_dock_ready")) and (row.get("pre_dock_block_reason", "") or "")
+    )
     status_counts = Counter(row.get("tracking_status", "") or "unknown" for row in rows)
     reject_reason_counts = Counter(
         row.get("reject_reason", "") or "none"
@@ -130,6 +135,7 @@ def analyze_tracking_log(path):
         "valid_pose_count": valid_pose_count,
         "valid_pose_rate": valid_pose_count / sample_count if sample_count else 0.0,
         "pre_dock_ready_count": pre_dock_ready_count,
+        "pre_dock_block_reason_counts": dict(pre_dock_block_reason_counts),
         "status_counts": dict(status_counts),
         "reject_reason_counts": dict(reject_reason_counts),
         "max_lost_frames": max_lost_frames,
@@ -157,6 +163,11 @@ def format_analysis_report(summary):
     if summary.get("reject_reason_counts"):
         lines.append("reject_reasons:")
         for reason, count in sorted(summary.get("reject_reason_counts", {}).items()):
+            lines.append(f"  {reason}: {count}")
+
+    if summary.get("pre_dock_block_reason_counts"):
+        lines.append("pre_dock_block_reasons:")
+        for reason, count in sorted(summary.get("pre_dock_block_reason_counts", {}).items()):
             lines.append(f"  {reason}: {count}")
 
     if summary.get("tracker_frames_processed"):

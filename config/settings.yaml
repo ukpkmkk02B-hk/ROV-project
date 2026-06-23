@@ -76,6 +76,7 @@ vision_tracking:
   output_backend: "mavlink_velocity"
   required_mode: "GUIDED"
   min_pre_dock_valid_frames: 3
+  pre_dock_recent_observation_max_age_s: 0.5
   rc_override:
     enabled: false
     neutral_pwm: 1500

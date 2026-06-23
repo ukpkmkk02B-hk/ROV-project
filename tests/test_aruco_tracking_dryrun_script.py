@@ -2,7 +2,12 @@ import unittest
 from argparse import Namespace
 from unittest.mock import patch
 
-from tools.run_aruco_tracking_dryrun import format_control_direction, main, resolve_log_path
+from tools.run_aruco_tracking_dryrun import (
+    format_control_direction,
+    main,
+    resolve_log_path,
+    update_pre_dock_observation_state,
+)
 
 
 class ArucoTrackingDryRunScriptTests(unittest.TestCase):
@@ -101,6 +106,46 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
             main()
 
         self.assertEqual(run_dryrun.call_args.kwargs["yaw_offset_override"], -90.0)
+
+    def test_pre_dock_frame_count_survives_empty_poll_until_recent_pose_expires(self):
+        count, last_counter, recent = update_pre_dock_observation_state(
+            current_count=2,
+            last_tracker_valid_pose_frames=10,
+            diagnostics={"tracker_valid_pose_frames": 10},
+            latest_pose_age_s=0.2,
+            config={"pre_dock_recent_observation_max_age_s": 0.5},
+            has_valid_observation=False,
+        )
+
+        self.assertEqual(count, 2)
+        self.assertEqual(last_counter, 10)
+        self.assertTrue(recent)
+
+        count, last_counter, recent = update_pre_dock_observation_state(
+            current_count=count,
+            last_tracker_valid_pose_frames=last_counter,
+            diagnostics={"tracker_valid_pose_frames": 13},
+            latest_pose_age_s=0.25,
+            config={"pre_dock_recent_observation_max_age_s": 0.5},
+            has_valid_observation=False,
+        )
+
+        self.assertEqual(count, 5)
+        self.assertEqual(last_counter, 13)
+        self.assertTrue(recent)
+
+        count, last_counter, recent = update_pre_dock_observation_state(
+            current_count=count,
+            last_tracker_valid_pose_frames=last_counter,
+            diagnostics={"tracker_valid_pose_frames": 13},
+            latest_pose_age_s=0.8,
+            config={"pre_dock_recent_observation_max_age_s": 0.5},
+            has_valid_observation=False,
+        )
+
+        self.assertEqual(count, 0)
+        self.assertEqual(last_counter, 13)
+        self.assertFalse(recent)
 
 
 if __name__ == "__main__":

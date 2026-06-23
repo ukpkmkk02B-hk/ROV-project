@@ -20,6 +20,51 @@ def _latest_pose_age_s(diagnostics, now):
         return ""
 
 
+def _as_int(value):
+    if value in (None, ""):
+        return 0
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def update_pre_dock_observation_state(
+    current_count,
+    last_tracker_valid_pose_frames,
+    diagnostics,
+    latest_pose_age_s,
+    config,
+    has_valid_observation,
+):
+    max_age_s = float(config.get("pre_dock_recent_observation_max_age_s", 0.5))
+    latest_age = _as_float(latest_pose_age_s)
+    has_recent = bool(has_valid_observation) or (latest_age is not None and latest_age <= max_age_s)
+
+    tracker_counter_available = diagnostics.get("tracker_valid_pose_frames") not in (None, "")
+    tracker_valid_pose_frames = _as_int(diagnostics.get("tracker_valid_pose_frames"))
+    if tracker_counter_available:
+        delta = max(0, tracker_valid_pose_frames - int(last_tracker_valid_pose_frames))
+        current_count += delta
+        last_tracker_valid_pose_frames = tracker_valid_pose_frames
+    elif has_valid_observation:
+        current_count += 1
+
+    if not has_recent:
+        current_count = 0
+
+    return current_count, last_tracker_valid_pose_frames, has_recent
+
+
 def format_control_direction(state, command, pose=None, new_pose=False, latest_pose_age_s=""):
     pose = pose or {}
     latest_age = "" if latest_pose_age_s in (None, "") else f"{float(latest_pose_age_s):.3f}s"
@@ -66,6 +111,7 @@ def build_controller(config):
         pre_dock_yaw_tolerance_deg=config.get("pre_dock_yaw_tolerance_deg", 5.0),
         camera_to_body=config.get("camera_to_body", {}),
         min_pre_dock_valid_frames=config.get("min_pre_dock_valid_frames", 3),
+        pre_dock_recent_observation_max_age_s=config.get("pre_dock_recent_observation_max_age_s", 0.5),
     )
 
 
@@ -98,6 +144,8 @@ def run_dryrun(
     rc_mapper = RcOverrideMapper(vision_config.get("rc_override", {}))
     output_backend = vision_config.get("output_backend", "mavlink_velocity")
     valid_observation_count = 0
+    pre_dock_valid_frame_count = 0
+    last_tracker_valid_pose_frames = 0
 
     start_time = time.time()
     last_print = 0.0
@@ -118,15 +166,33 @@ def run_dryrun(
                     state = estimator.update(pose, pose.get("timestamp", now))
                     has_valid_observation = True
                 else:
-                    valid_observation_count = 0
                     state = estimator.predict(now)
                     has_valid_observation = False
+                pre_dock_valid_frame_count, last_tracker_valid_pose_frames, has_recent_valid_observation = (
+                    update_pre_dock_observation_state(
+                        current_count=pre_dock_valid_frame_count,
+                        last_tracker_valid_pose_frames=last_tracker_valid_pose_frames,
+                        diagnostics=diagnostics,
+                        latest_pose_age_s=latest_pose_age,
+                        config=vision_config,
+                        has_valid_observation=has_valid_observation,
+                    )
+                )
+                if not has_recent_valid_observation:
+                    valid_observation_count = 0
                 state["has_valid_observation"] = has_valid_observation
                 state["valid_observation_count"] = valid_observation_count
+                state["has_recent_valid_observation"] = has_recent_valid_observation
+                state["latest_pose_age_s"] = latest_pose_age
+                state["pre_dock_valid_frame_count"] = pre_dock_valid_frame_count
+                state["pre_dock_recent_observation_max_age_s"] = float(
+                    vision_config.get("pre_dock_recent_observation_max_age_s", 0.5)
+                )
                 state.update(camera_state_to_body_error(state, vision_config))
 
                 command = controller.compute_command(state) if state.get("status") != "lost" else controller.neutral_command()
-                pre_dock_ready = controller.is_pre_dock_ready(state) if state.get("status") != "lost" else False
+                state.update(controller.pre_dock_diagnostics(state))
+                pre_dock_ready = controller.is_pre_dock_ready(state)
                 motion = motion_command_from_mapping(command)
                 mavlink_command = motion.as_mavlink_body_ned()
                 rc_override = rc_mapper.map_motion_command(motion)

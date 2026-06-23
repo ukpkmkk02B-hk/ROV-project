@@ -38,6 +38,15 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "up_m": 0.19,
                     "yaw_raw_deg": 182.5,
                     "yaw_error_deg": 2.5,
+                    "pre_dock_valid_frame_count": 4,
+                    "has_recent_valid_observation": True,
+                    "pre_dock_recent_observation_max_age_s": 0.5,
+                    "pre_dock_recent_ok": True,
+                    "pre_dock_valid_frames_ok": True,
+                    "pre_dock_position_ok": False,
+                    "pre_dock_distance_ok": True,
+                    "pre_dock_yaw_ok": True,
+                    "pre_dock_block_reason": "position_error_high",
                 },
                 control_cmd={
                     "forward_m_s": 0.01,
@@ -108,6 +117,15 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["reject_reason"], "")
         self.assertEqual(row["new_pose"], "1")
         self.assertEqual(row["latest_pose_age_s"], "0.012")
+        self.assertEqual(row["pre_dock_valid_frame_count"], "4")
+        self.assertEqual(row["has_recent_valid_observation"], "1")
+        self.assertEqual(row["pre_dock_recent_observation_max_age_s"], "0.5")
+        self.assertEqual(row["pre_dock_recent_ok"], "1")
+        self.assertEqual(row["pre_dock_valid_frames_ok"], "1")
+        self.assertEqual(row["pre_dock_position_ok"], "0")
+        self.assertEqual(row["pre_dock_distance_ok"], "1")
+        self.assertEqual(row["pre_dock_yaw_ok"], "1")
+        self.assertEqual(row["pre_dock_block_reason"], "position_error_high")
         self.assertEqual(row["tracker_frames_processed"], "30")
         self.assertEqual(row["tracker_marker_frames"], "28")
         self.assertEqual(row["tracker_target_frames"], "27")

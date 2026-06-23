@@ -27,6 +27,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "tracking_status": "tracking",
                         "lost_frames": "0",
                         "pre_dock_ready": "0",
+                        "pre_dock_block_reason": "yaw_error_high",
                         "pose_z": "1.20",
                         "pose_yaw": "10.0",
                         "filtered_z": "1.15",
@@ -55,6 +56,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "tracking_status": "tracking",
                         "lost_frames": "0",
                         "pre_dock_ready": "1",
+                        "pre_dock_block_reason": "",
                         "pose_z": "0.82",
                         "pose_yaw": "2.0",
                         "filtered_z": "0.82",
@@ -80,6 +82,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "tracking_status": "predicted",
                         "lost_frames": "1",
                         "pre_dock_ready": "0",
+                        "pre_dock_block_reason": "recent_observation_expired",
                         "filtered_z": "0.84",
                         "filtered_yaw": "2.5",
                         "cmd_vx": "0.02",
@@ -102,6 +105,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "tracking_status": "lost",
                         "lost_frames": "10",
                         "pre_dock_ready": "0",
+                        "pre_dock_block_reason": "lost",
                         "cmd_vx": "0.00",
                         "cmd_vy": "0.00",
                         "cmd_vz": "0.00",
@@ -122,6 +126,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "tracking_status": "predicted",
                         "lost_frames": "1",
                         "pre_dock_ready": "0",
+                        "pre_dock_block_reason": "valid_frame_count_low",
                         "pose_valid": "1",
                         "reject_reason": "",
                         "yaw_error_deg": "0.0",
@@ -144,6 +149,9 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertEqual(summary["status_counts"]["predicted"], 2)
         self.assertEqual(summary["status_counts"]["lost"], 1)
         self.assertEqual(summary["pre_dock_ready_count"], 1)
+        self.assertEqual(summary["pre_dock_block_reason_counts"]["recent_observation_expired"], 1)
+        self.assertEqual(summary["pre_dock_block_reason_counts"]["valid_frame_count_low"], 1)
+        self.assertEqual(summary["pre_dock_block_reason_counts"]["yaw_error_high"], 1)
         self.assertEqual(summary["max_lost_frames"], 10)
         self.assertEqual(summary["valid_pose_count"], 1)
         self.assertAlmostEqual(summary["valid_pose_rate"], 0.2)
@@ -172,6 +180,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                 "max_lost_frames": 10,
                 "status_counts": {"tracking": 2, "predicted": 1, "lost": 1},
                 "reject_reason_counts": {"no_pose": 2, "reprojection_error_too_high": 1},
+                "pre_dock_block_reason_counts": {"recent_observation_expired": 2, "yaw_error_high": 1},
                 "ranges": {"filtered_z": {"min": 0.82, "max": 1.15}},
                 "tracker_frames_processed": 50,
                 "tracker_marker_frames": 40,
@@ -189,6 +198,8 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertIn("reject_reasons:", report)
         self.assertIn("no_pose: 2", report)
         self.assertIn("pre_dock_ready: 1", report)
+        self.assertIn("pre_dock_block_reasons:", report)
+        self.assertIn("recent_observation_expired: 2", report)
         self.assertIn("tracker_frames: 50", report)
         self.assertIn("tracker_valid_pose_frames: 30 (60.0%)", report)
         self.assertIn("filtered_z: 0.820 .. 1.150", report)

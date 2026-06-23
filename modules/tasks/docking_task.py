@@ -64,6 +64,7 @@ class DockingTask:
             pre_dock_yaw_tolerance_deg=tracking_config.get("pre_dock_yaw_tolerance_deg", 5.0),
             camera_to_body=tracking_config.get("camera_to_body", {}),
             min_pre_dock_valid_frames=tracking_config.get("min_pre_dock_valid_frames", 3),
+            pre_dock_recent_observation_max_age_s=tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5),
         )
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
         self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
@@ -85,6 +86,10 @@ class DockingTask:
         self.last_rc_override = {}
         self.pre_dock_ready = False
         self.valid_observation_count = 0
+        self.last_valid_observation_time = None
+        self.pre_dock_recent_observation_max_age_s = float(
+            tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5)
+        )
         # 状态机所需属性
         self.name = "docking"
         self.status = "idle"
@@ -160,14 +165,14 @@ class DockingTask:
                 self.last_pose = pose
                 self.lost_counter = 0
                 self.valid_observation_count += 1
+                self.last_valid_observation_time = now
                 self.filtered_state = self.estimator.update(pose, pose.get("timestamp", now))
-                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=True)
+                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=True, now=now)
             else:
                 self.lost_counter += 1
-                self.valid_observation_count = 0
                 print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 次丢失目标")
                 self.filtered_state = self.estimator.predict(now)
-                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=False)
+                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=False, now=now)
                 if self.filtered_state.get("status") == "lost":
                     return self._handle_no_target()
 
@@ -224,6 +229,7 @@ class DockingTask:
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = {}
         self.valid_observation_count = 0
+        self.last_valid_observation_time = None
         self.estimator.reset()
         if self.attempts >= self.max_attempts:
             self.stage = self.STATE_FAILED
@@ -266,6 +272,8 @@ class DockingTask:
             return self._handle_no_target()
 
         self.last_command = self.tracking_ctrl.compute_command(state)
+        state.update(self.tracking_ctrl.pre_dock_diagnostics(state))
+        self.filtered_state = state
         self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(state)
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
@@ -280,11 +288,23 @@ class DockingTask:
         else:
             self.stage = self.STATE_TRACK
 
-    def _annotate_state(self, state, has_valid_observation):
+    def _annotate_state(self, state, has_valid_observation, now=None):
         state = dict(state or {})
+        now = time.time() if now is None else now
+        latest_pose_age = ""
+        has_recent_valid_observation = False
+        if self.last_valid_observation_time is not None:
+            latest_pose_age = max(0.0, now - self.last_valid_observation_time)
+            has_recent_valid_observation = latest_pose_age <= self.pre_dock_recent_observation_max_age_s
+        if not has_recent_valid_observation:
+            self.valid_observation_count = 0
         state.update(camera_state_to_body_error(state, self.tracking_config))
         state["has_valid_observation"] = bool(has_valid_observation)
         state["valid_observation_count"] = self.valid_observation_count
+        state["has_recent_valid_observation"] = has_recent_valid_observation
+        state["latest_pose_age_s"] = latest_pose_age
+        state["pre_dock_valid_frame_count"] = self.valid_observation_count
+        state["pre_dock_recent_observation_max_age_s"] = self.pre_dock_recent_observation_max_age_s
         return state
 
     def _send_motion_command(self, command):
