@@ -54,6 +54,32 @@ class ConstantVelocityEKFTests(unittest.TestCase):
         self.assertLess(abs(state["vx"]), 0.02)
         self.assertLess(abs(state["yaw_rate_deg_s"]), 1.0)
 
+    def test_update_clamps_unrealistic_velocity_and_yaw_rate(self):
+        estimator = ConstantVelocityEKF(max_lost_frames=3, max_velocity_m_s=0.3, max_yaw_rate_deg_s=20.0)
+        estimator.update({"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0}, timestamp=1.0)
+
+        state = estimator.update({"x": 10.0, "y": -10.0, "z": 5.0, "yaw": 180.0}, timestamp=2.0)
+
+        self.assertAlmostEqual(state["vx"], 0.3)
+        self.assertAlmostEqual(state["vy"], -0.3)
+        self.assertAlmostEqual(state["vz"], 0.3)
+        self.assertAlmostEqual(state["yaw_rate_deg_s"], 20.0)
+
+    def test_lost_state_clears_velocity_so_future_predictions_do_not_drift(self):
+        estimator = ConstantVelocityEKF(max_lost_frames=2)
+        estimator.update({"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0}, timestamp=1.0)
+        estimator.update({"x": 0.2, "y": 0.0, "z": 0.8, "yaw": 10.0}, timestamp=2.0)
+
+        estimator.predict(timestamp=3.0)
+        lost = estimator.predict(timestamp=4.0)
+        later = estimator.predict(timestamp=5.0)
+
+        self.assertEqual(lost["status"], "lost")
+        self.assertAlmostEqual(lost["vx"], 0.0)
+        self.assertAlmostEqual(lost["yaw_rate_deg_s"], 0.0)
+        self.assertAlmostEqual(later["x"], lost["x"])
+        self.assertAlmostEqual(later["yaw"], lost["yaw"])
+
 
 if __name__ == "__main__":
     unittest.main()

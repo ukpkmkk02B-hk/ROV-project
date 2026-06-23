@@ -5,8 +5,10 @@ import numpy as np
 
 from modules.perception.marker_tracker import (
     build_square_object_points,
+    compute_marker_pixel_size,
     make_pose_dict,
     rotation_matrix_to_euler_deg,
+    validate_pose_quality,
 )
 
 
@@ -66,6 +68,61 @@ class MarkerTrackerHelperTests(unittest.TestCase):
         self.assertEqual(pose["center_v"], 240.0)
         self.assertEqual(pose["timestamp"], 123.5)
         self.assertIs(pose["detected"], True)
+
+    def test_compute_marker_pixel_size_reports_average_edge_length(self):
+        corners = np.array(
+            [
+                [10.0, 20.0],
+                [50.0, 20.0],
+                [50.0, 60.0],
+                [10.0, 60.0],
+            ],
+            dtype=np.float32,
+        )
+
+        self.assertAlmostEqual(compute_marker_pixel_size(corners), 40.0)
+
+    def test_validate_pose_quality_accepts_good_pose_and_records_valid_state(self):
+        pose = {
+            "x": 0.1,
+            "y": -0.1,
+            "z": 0.8,
+            "yaw": 20.0,
+            "marker_pixel_size_px": 80.0,
+            "reprojection_error_px": 1.2,
+        }
+
+        self.assertTrue(validate_pose_quality(pose, {"max_reprojection_error_px": 5.0}))
+        self.assertTrue(pose["pose_valid"])
+        self.assertEqual(pose["reject_reason"], "")
+
+    def test_validate_pose_quality_rejects_outliers_small_markers_and_bad_reprojection(self):
+        config = {
+            "max_abs_position_m": 5.0,
+            "max_abs_yaw_deg": 180.0,
+            "min_marker_pixel_size_px": 20.0,
+            "max_reprojection_error_px": 4.0,
+        }
+
+        cases = [
+            ({"x": 100.0, "y": 0.0, "z": 0.8, "yaw": 0.0}, "position_out_of_range"),
+            ({"x": 0.0, "y": 0.0, "z": -0.1, "yaw": 0.0}, "z_out_of_range"),
+            ({"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 2875.0}, "yaw_out_of_range"),
+            (
+                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "marker_pixel_size_px": 12.0},
+                "marker_too_small",
+            ),
+            (
+                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "reprojection_error_px": 7.5},
+                "reprojection_error_too_high",
+            ),
+        ]
+
+        for pose, reason in cases:
+            with self.subTest(reason=reason):
+                self.assertFalse(validate_pose_quality(pose, config))
+                self.assertFalse(pose["pose_valid"])
+                self.assertEqual(pose["reject_reason"], reason)
 
 
 if __name__ == "__main__":

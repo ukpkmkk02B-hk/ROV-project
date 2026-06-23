@@ -61,6 +61,75 @@ def make_pose_dict(marker_id, tvec, rvec, center, timestamp, euler_deg=None):
     }
 
 
+def compute_marker_pixel_size(corners):
+    points = np.asarray(corners, dtype=np.float64).reshape(4, 2)
+    edges = []
+    for idx in range(4):
+        next_idx = (idx + 1) % 4
+        edges.append(np.linalg.norm(points[next_idx] - points[idx]))
+    return float(np.mean(edges))
+
+
+def compute_reprojection_error(object_points, image_points, rvec, tvec, camera_matrix, dist_coeffs):
+    if cv2 is None:
+        raise RuntimeError("OpenCV is required to compute reprojection error")
+
+    projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
+    projected = np.asarray(projected, dtype=np.float64).reshape(-1, 2)
+    image_points = np.asarray(image_points, dtype=np.float64).reshape(-1, 2)
+    return float(np.mean(np.linalg.norm(projected - image_points, axis=1)))
+
+
+def _set_pose_quality(pose, valid, reason=""):
+    pose["pose_valid"] = bool(valid)
+    pose["reject_reason"] = "" if valid else reason
+    return bool(valid)
+
+
+def _optional_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def validate_pose_quality(pose, config):
+    if pose is None:
+        return False
+
+    max_abs_position_m = float(config.get("max_abs_position_m", 5.0))
+    max_abs_yaw_deg = float(config.get("max_abs_yaw_deg", 180.0))
+    min_marker_pixel_size_px = float(config.get("min_marker_pixel_size_px", 0.0))
+    max_reprojection_error_px = float(config.get("max_reprojection_error_px", float("inf")))
+
+    try:
+        x = float(pose["x"])
+        y = float(pose["y"])
+        z = float(pose["z"])
+        yaw = float(pose.get("yaw", 0.0))
+    except (KeyError, TypeError, ValueError):
+        return _set_pose_quality(pose, False, "invalid_pose_fields")
+
+    if abs(x) > max_abs_position_m or abs(y) > max_abs_position_m:
+        return _set_pose_quality(pose, False, "position_out_of_range")
+    if z <= 0.0 or z > max_abs_position_m:
+        return _set_pose_quality(pose, False, "z_out_of_range")
+    if abs(yaw) > max_abs_yaw_deg:
+        return _set_pose_quality(pose, False, "yaw_out_of_range")
+
+    marker_pixel_size = _optional_float(pose.get("marker_pixel_size_px"))
+    if marker_pixel_size is not None and marker_pixel_size < min_marker_pixel_size_px:
+        return _set_pose_quality(pose, False, "marker_too_small")
+
+    reprojection_error = _optional_float(pose.get("reprojection_error_px"))
+    if reprojection_error is not None and reprojection_error > max_reprojection_error_px:
+        return _set_pose_quality(pose, False, "reprojection_error_too_high")
+
+    return _set_pose_quality(pose, True)
+
+
 def _load_yaml(path):
     import yaml
 
@@ -89,6 +158,26 @@ def apply_capture_settings(cap, config, cv2_module=None):
         "frame_width": int(cap.get(width_prop)),
         "frame_height": int(cap.get(height_prop)),
     }
+
+
+def open_first_readable_capture(candidates, config, cv2_module=None, capture_factory=None):
+    cv2_module = cv2 if cv2_module is None else cv2_module
+    capture_factory = cv2_module.VideoCapture if capture_factory is None else capture_factory
+
+    for dev in candidates:
+        cap = capture_factory(dev)
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        actual_frame_size = apply_capture_settings(cap, config, cv2_module=cv2_module)
+        ok, _ = cap.read()
+        if ok:
+            return cap, dev, actual_frame_size
+
+        cap.release()
+
+    return None, None, None
 
 
 def frame_size_matches_config(config, actual_frame_size):
@@ -146,6 +235,17 @@ class ArucoMarkerTracker(CommunicationBase):
         self.enable_undistort_preview = bool(config.get("enable_undistort_preview", False))
         self.config = config
         self.actual_frame_size = None
+        self.selected_device = None
+        self.latest_diagnostics = {
+            "device": "",
+            "frame_width": "",
+            "frame_height": "",
+            "detected_ids": [],
+            "rejected_count": 0,
+            "pose_valid": False,
+            "reject_reason": "not_started",
+        }
+        self._diagnostics_lock = threading.Lock()
 
         self.camera_matrix, self.dist_coeffs = load_camera_parameters(config)
         self.object_points = build_square_object_points(self.marker_size_m)
@@ -164,7 +264,7 @@ class ArucoMarkerTracker(CommunicationBase):
         self.pose_queue = queue.Queue(maxsize=1)
         self.continuous_detections = 0
         self.continuous_lost = 0
-        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+        self.thread = None
 
     def start(self):
         candidates = []
@@ -175,50 +275,53 @@ class ArucoMarkerTracker(CommunicationBase):
         if not candidates:
             candidates = [f"/dev/video{i}" for i in range(10)]
 
-        for dev in candidates:
-            cap = cv2.VideoCapture(dev)
-            if cap.isOpened():
-                self.cap = cap
-                self.actual_frame_size = apply_capture_settings(self.cap, self.config)
-                self.logger.info(f"成功打开ArUco摄像头 {dev}")
-                self.logger.info(f"ArUco摄像头实际分辨率: {self.actual_frame_size}")
-                if not frame_size_matches_config(self.config, self.actual_frame_size):
-                    self.logger.warning(
-                        "ArUco摄像头实际分辨率与配置不一致，PnP距离可能偏差: "
-                        f"requested=({self.config.get('frame_width')}, {self.config.get('frame_height')}), "
-                        f"actual={self.actual_frame_size}"
-                    )
-                break
-            cap.release()
-
+        self.cap, self.selected_device, self.actual_frame_size = open_first_readable_capture(candidates, self.config)
         if self.cap is None:
-            self.logger.error(f"无法打开任何ArUco摄像头设备，尝试了: {candidates}")
+            self.logger.error(f"Unable to open a readable ArUco camera. Tried: {candidates}")
+            self._update_diagnostics(reject_reason="camera_open_failed")
             return
 
+        self.logger.info(f"Opened ArUco camera: {self.selected_device}")
+        self.logger.info(f"ArUco camera actual resolution: {self.actual_frame_size}")
+        if not frame_size_matches_config(self.config, self.actual_frame_size):
+            self.logger.warning(
+                "ArUco camera actual resolution differs from config; PnP distance may be biased: "
+                f"requested=({self.config.get('frame_width')}, {self.config.get('frame_height')}), "
+                f"actual={self.actual_frame_size}"
+            )
+        self._update_diagnostics(reject_reason="no_pose")
         self.running = True
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
-        self.logger.info("ArucoMarkerTracker 已启动")
+        self.logger.info("ArucoMarkerTracker started")
 
     def stop(self):
         self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
         if self.cap and self.cap.isOpened():
             self.cap.release()
-        self.logger.info("ArucoMarkerTracker 已停止")
+        self.logger.info("ArucoMarkerTracker stopped")
 
     def _run_loop(self):
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
         while self.running:
             ok, frame = self.cap.read()
             if not ok:
-                self.logger.warning("ArUco图像采集失败")
+                self.logger.warning("ArUco image capture failed")
+                self._update_diagnostics(reject_reason="capture_failed")
                 time.sleep(0.02)
                 continue
 
             pose = self.process_frame(frame, timestamp=time.time())
             if pose is not None:
                 self._put_pose(pose)
-                self.continuous_detections += 1
-                self.continuous_lost = 0
+                if pose.get("pose_valid", True):
+                    self.continuous_detections += 1
+                    self.continuous_lost = 0
+                else:
+                    self.continuous_detections = 0
+                    self.continuous_lost += 1
             else:
                 self.continuous_detections = 0
                 self.continuous_lost += 1
@@ -230,7 +333,7 @@ class ArucoMarkerTracker(CommunicationBase):
                     if success:
                         self.surface.send_video_packet(jpg.tobytes(), 0x01, 0x00)
                 except Exception as exc:
-                    self.logger.warning(f"ArUco视频转发失败: {exc}")
+                    self.logger.warning(f"ArUco video forwarding failed: {exc}")
 
             time.sleep(0.02)
 
@@ -244,15 +347,40 @@ class ArucoMarkerTracker(CommunicationBase):
                 pass
             self.pose_queue.put(pose, block=False)
 
+    def _update_diagnostics(self, **updates):
+        with self._diagnostics_lock:
+            diagnostics = dict(self.latest_diagnostics)
+            diagnostics["device"] = self.selected_device or self.device_path or self.camera_id or ""
+            if self.actual_frame_size:
+                diagnostics.update(self.actual_frame_size)
+            diagnostics.update(updates)
+            self.latest_diagnostics = diagnostics
+
+    def get_diagnostics(self):
+        with self._diagnostics_lock:
+            diagnostics = dict(self.latest_diagnostics)
+        if isinstance(diagnostics.get("detected_ids"), list):
+            diagnostics["detected_ids"] = list(diagnostics["detected_ids"])
+        return diagnostics
+
     def process_frame(self, frame, timestamp=None):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.detector.detectMarkers(gray)
+        corners, ids, rejected = self.detector.detectMarkers(gray)
+        detected_ids = [] if ids is None else [int(v) for v in ids.flatten()]
+        rejected_count = 0 if rejected is None else len(rejected)
+        self._update_diagnostics(
+            detected_ids=detected_ids,
+            rejected_count=rejected_count,
+            pose_valid=False,
+            reject_reason="no_marker",
+        )
         if ids is None:
             return None
 
         for marker_corners, found_id in zip(corners, ids.flatten()):
             if int(found_id) != self.marker_id:
                 continue
+
             image_points = np.asarray(marker_corners, dtype=np.float32).reshape(4, 2)
             ok, rvec, tvec = cv2.solvePnP(
                 self.object_points,
@@ -262,10 +390,21 @@ class ArucoMarkerTracker(CommunicationBase):
                 flags=cv2.SOLVEPNP_IPPE_SQUARE,
             )
             if not ok:
+                self._update_diagnostics(reject_reason="pnp_failed")
                 return None
+
             rotation, _ = cv2.Rodrigues(rvec)
             center = image_points.mean(axis=0)
-            return make_pose_dict(
+            marker_pixel_size = compute_marker_pixel_size(image_points)
+            reprojection_error = compute_reprojection_error(
+                self.object_points,
+                image_points,
+                rvec,
+                tvec,
+                self.camera_matrix,
+                self.dist_coeffs,
+            )
+            pose = make_pose_dict(
                 marker_id=int(found_id),
                 tvec=tvec,
                 rvec=rvec,
@@ -273,6 +412,18 @@ class ArucoMarkerTracker(CommunicationBase):
                 timestamp=time.time() if timestamp is None else timestamp,
                 euler_deg=rotation_matrix_to_euler_deg(rotation),
             )
+            pose["marker_pixel_size_px"] = marker_pixel_size
+            pose["reprojection_error_px"] = reprojection_error
+            validate_pose_quality(pose, self.config)
+            self._update_diagnostics(
+                marker_pixel_size_px=marker_pixel_size,
+                reprojection_error_px=reprojection_error,
+                pose_valid=pose["pose_valid"],
+                reject_reason=pose["reject_reason"],
+            )
+            return pose
+
+        self._update_diagnostics(reject_reason="target_id_not_found")
         return None
 
     def get_pose(self):

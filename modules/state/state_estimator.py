@@ -1,9 +1,11 @@
 class ConstantVelocityEKF:
     """Lightweight constant-velocity estimator for visual tracking state."""
 
-    def __init__(self, max_lost_frames=10, min_dt=1e-3):
+    def __init__(self, max_lost_frames=10, min_dt=1e-3, max_velocity_m_s=0.6, max_yaw_rate_deg_s=45.0):
         self.max_lost_frames = int(max_lost_frames)
         self.min_dt = float(min_dt)
+        self.max_velocity_m_s = abs(float(max_velocity_m_s))
+        self.max_yaw_rate_deg_s = abs(float(max_yaw_rate_deg_s))
         self._state = None
         self._last_timestamp = None
         self._last_measurement = None
@@ -39,10 +41,13 @@ class ConstantVelocityEKF:
             previous = self._last_measurement
             self._state = {
                 **measured,
-                "vx": (measured["x"] - previous["x"]) / dt,
-                "vy": (measured["y"] - previous["y"]) / dt,
-                "vz": (measured["z"] - previous["z"]) / dt,
-                "yaw_rate_deg_s": (measured["yaw"] - previous["yaw"]) / dt,
+                "vx": self._clamp((measured["x"] - previous["x"]) / dt, self.max_velocity_m_s),
+                "vy": self._clamp((measured["y"] - previous["y"]) / dt, self.max_velocity_m_s),
+                "vz": self._clamp((measured["z"] - previous["z"]) / dt, self.max_velocity_m_s),
+                "yaw_rate_deg_s": self._clamp(
+                    (measured["yaw"] - previous["yaw"]) / dt,
+                    self.max_yaw_rate_deg_s,
+                ),
             }
 
         self._last_timestamp = timestamp
@@ -69,7 +74,16 @@ class ConstantVelocityEKF:
         self._lost_frames += 1
 
         status = "lost" if self._lost_frames >= self.max_lost_frames else "predicted"
+        if status == "lost":
+            self._state["vx"] = 0.0
+            self._state["vy"] = 0.0
+            self._state["vz"] = 0.0
+            self._state["yaw_rate_deg_s"] = 0.0
         return self._snapshot(status=status, timestamp=timestamp)
+
+    @staticmethod
+    def _clamp(value, limit):
+        return max(-limit, min(limit, value))
 
     def _snapshot(self, status, timestamp):
         snapshot = dict(self._state)

@@ -1,5 +1,7 @@
 import math
 
+from modules.controller.motion_command import MotionCommand, camera_state_to_body_error
+
 
 def _clamp(value, low, high):
     return max(low, min(high, value))
@@ -20,6 +22,8 @@ class VisualTrackingController:
         pre_dock_position_tolerance_m=0.05,
         pre_dock_distance_tolerance_m=0.05,
         pre_dock_yaw_tolerance_deg=5.0,
+        camera_to_body=None,
+        min_pre_dock_valid_frames=1,
     ):
         self.desired_z_m = float(desired_z_m)
         self.max_v_m_s = float(max_v_m_s)
@@ -31,37 +35,48 @@ class VisualTrackingController:
         self.pre_dock_position_tolerance_m = float(pre_dock_position_tolerance_m)
         self.pre_dock_distance_tolerance_m = float(pre_dock_distance_tolerance_m)
         self.pre_dock_yaw_tolerance_deg = float(pre_dock_yaw_tolerance_deg)
+        self.camera_to_body = camera_to_body or {}
+        self.min_pre_dock_valid_frames = int(min_pre_dock_valid_frames)
 
     def compute_command(self, state):
-        distance_error = float(state["z"]) - self.desired_z_m
-        lateral_error = float(state["x"])
-        vertical_error = float(state.get("y", 0.0))
-        yaw_error_deg = float(state.get("yaw", 0.0))
+        state = self._body_error(state)
+        distance_error = float(state["forward_m"]) - self.desired_z_m
+        lateral_error = float(state["right_m"])
+        vertical_error = float(state.get("up_m", 0.0))
+        yaw_error_deg = float(state.get("yaw_error_deg", 0.0))
 
-        vx = _clamp(self.kp_distance * distance_error, -self.max_v_m_s, self.max_v_m_s)
-        vy = _clamp(-self.kp_lateral * lateral_error, -self.max_v_m_s, self.max_v_m_s)
-        vz = _clamp(-self.kp_vertical * vertical_error, -self.max_v_m_s, self.max_v_m_s)
+        forward = _clamp(self.kp_distance * distance_error, -self.max_v_m_s, self.max_v_m_s)
+        right = _clamp(self.kp_lateral * lateral_error, -self.max_v_m_s, self.max_v_m_s)
+        up = _clamp(self.kp_vertical * vertical_error, -self.max_v_m_s, self.max_v_m_s)
         yaw_rate = _clamp(
             -self.kp_yaw * math.radians(yaw_error_deg),
             -self.max_yaw_rate_rad_s,
             self.max_yaw_rate_rad_s,
         )
 
-        return {
-            "vx": vx,
-            "vy": vy,
-            "vz": vz,
-            "yaw_rate": yaw_rate,
-            "v_yaw": yaw_rate,
-        }
+        return MotionCommand(forward, right, up, yaw_rate).as_dict()
 
     def neutral_command(self):
-        return {"vx": 0.0, "vy": 0.0, "vz": 0.0, "yaw_rate": 0.0, "v_yaw": 0.0}
+        return MotionCommand.neutral().as_dict()
 
     def is_pre_dock_ready(self, state):
+        if not state or state.get("status") in {"lost", "predicted"}:
+            return False
+        if state.get("has_valid_observation") is False:
+            return False
+        valid_count = int(state.get("valid_observation_count", self.min_pre_dock_valid_frames))
+        if valid_count < self.min_pre_dock_valid_frames:
+            return False
+
+        state = self._body_error(state)
         return (
-            abs(float(state["x"])) <= self.pre_dock_position_tolerance_m
-            and abs(float(state.get("y", 0.0))) <= self.pre_dock_position_tolerance_m
-            and abs(float(state["z"]) - self.desired_z_m) <= self.pre_dock_distance_tolerance_m
-            and abs(float(state.get("yaw", 0.0))) <= self.pre_dock_yaw_tolerance_deg
+            abs(float(state["right_m"])) <= self.pre_dock_position_tolerance_m
+            and abs(float(state.get("up_m", 0.0))) <= self.pre_dock_position_tolerance_m
+            and abs(float(state["forward_m"]) - self.desired_z_m) <= self.pre_dock_distance_tolerance_m
+            and abs(float(state.get("yaw_error_deg", 0.0))) <= self.pre_dock_yaw_tolerance_deg
         )
+
+    def _body_error(self, state):
+        if all(key in state for key in ("forward_m", "right_m", "up_m", "yaw_error_deg")):
+            return state
+        return camera_state_to_body_error(state, {"camera_to_body": self.camera_to_body})

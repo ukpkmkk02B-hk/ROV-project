@@ -5,6 +5,7 @@ import time
 import queue
 import logging
 from pymavlink import mavutil
+from modules.controller.motion_command import motion_command_from_mapping
 
 try:
     from .comm_base import CommunicationBase
@@ -301,8 +302,10 @@ class PixhawkComm(CommunicationBase):
         
     def send_velocity_command(self, vel_cmd):
         """发送速度控制命令 - ArduSub专用"""
-        # ArduSub使用NED坐标系
-        frame = mavutil.mavlink.MAV_FRAME_LOCAL_NED
+        # ArduSub body-frame NED: X forward, Y right, Z down.
+        frame = getattr(mavutil.mavlink, "MAV_FRAME_BODY_NED", mavutil.mavlink.MAV_FRAME_LOCAL_NED)
+        motion = motion_command_from_mapping(vel_cmd)
+        mav_velocity = motion.as_mavlink_body_ned()
         
         # 坐标系掩码: 忽略位置和加速计，只控制速度
         # 位掩码: 忽略位置和加速计，控制速度
@@ -312,7 +315,8 @@ class PixhawkComm(CommunicationBase):
             mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE |
             mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE |
             mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE |
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE |
+            getattr(mavutil.mavlink, "POSITION_TARGET_TYPEMASK_YAW_IGNORE", 0)
         )
         
         # 水下发控的特殊处理：
@@ -329,16 +333,18 @@ class PixhawkComm(CommunicationBase):
             0,  # X位置 (不使用)
             0,  # Y位置 (不使用)
             0,  # Z位置 (不使用)
-            vel_cmd.get('vx', 0),  # 
-            vel_cmd.get('vy', 0),  # 
-            vel_cmd.get('vz', 0),  # 
+            mav_velocity["vx"],  # X velocity, forward
+            mav_velocity["vy"],  # Y velocity, right
+            mav_velocity["vz"],  # Z velocity, down
             0,  # X方向加速度 (不使用)
             0,  # Y方向加速度 (不使用)
             0,  # Z方向加速度 (不使用)
             0,  # 偏航角 (不使用)
-            vel_cmd.get("yaw_rate", vel_cmd.get("v_yaw", 0))   # 偏航率 ()
+            mav_velocity["yaw_rate"]   # yaw rate, rad/s
         )
-        self.logger.debug(f"发送速度命令: Vx={vel_cmd.get('vx', 0)}, Vy={vel_cmd.get('vy', 0)}, Vz={vel_cmd.get('vz', 0)}")
+        self.logger.debug(
+            f"发送速度命令: Vx={mav_velocity['vx']}, Vy={mav_velocity['vy']}, Vz={mav_velocity['vz']}"
+        )
         
     def get_attitude(self):
         """获取当前姿态（转换为度数）"""

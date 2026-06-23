@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from modules.perception.marker_tracker import apply_capture_settings, frame_size_matches_config
+from modules.perception.marker_tracker import apply_capture_settings, frame_size_matches_config, open_first_readable_capture
 
 
 class FakeCapture:
@@ -14,6 +14,15 @@ class FakeCapture:
 
     def get(self, prop):
         return self.values.get(prop, 0)
+
+    def isOpened(self):
+        return True
+
+    def read(self):
+        return True, object()
+
+    def release(self):
+        self.released = True
 
 
 class MarkerTrackerCaptureSettingsTests(unittest.TestCase):
@@ -45,6 +54,30 @@ class MarkerTrackerCaptureSettingsTests(unittest.TestCase):
                 {"frame_width": 1280, "frame_height": 720},
             )
         )
+
+    def test_open_first_readable_capture_skips_open_device_that_cannot_read_frame(self):
+        cv2_stub = SimpleNamespace(CAP_PROP_FRAME_WIDTH=3, CAP_PROP_FRAME_HEIGHT=4)
+        first = FakeCapture()
+        first.read = lambda: (False, None)
+        second = FakeCapture()
+        created = []
+
+        def capture_factory(device):
+            created.append(device)
+            return first if device == "/dev/video1" else second
+
+        cap, device, actual = open_first_readable_capture(
+            ["/dev/video1", "/dev/video0"],
+            {"frame_width": 1920, "frame_height": 1080},
+            cv2_module=cv2_stub,
+            capture_factory=capture_factory,
+        )
+
+        self.assertIs(cap, second)
+        self.assertEqual(device, "/dev/video0")
+        self.assertEqual(actual, {"frame_width": 1920, "frame_height": 1080})
+        self.assertEqual(created, ["/dev/video1", "/dev/video0"])
+        self.assertTrue(first.released)
 
 
 if __name__ == "__main__":

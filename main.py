@@ -240,7 +240,7 @@ def main():
                 scheduler.start_task("docking")
 
             elif rov_cmd == "docking stop":
-                scheduler.stop_current_task("docking")
+                scheduler.stop_current_task()
                 scheduler.stop()
                 print(f"[MAIN]              ⚠️ TINGZHI DUIJIE")
             

@@ -10,10 +10,13 @@ sys.path.insert(0, project_root)
 import time
 import math
 from modules.controller import path_follower, precision_docking
+from modules.controller.motion_command import camera_state_to_body_error, motion_command_from_mapping
+from modules.controller.rc_override_mapper import RcOverrideMapper
 from modules.controller.visual_tracking_controller import VisualTrackingController
 from modules.comms.pixhawk_comm import PixhawkComm
 from modules.comms.comm_base import CommunicationBase
 from modules.perception.camera import AprilTagCameraInterface
+from modules.perception.marker_tracker import validate_pose_quality
 from modules.state.state_estimator import ConstantVelocityEKF
 from modules.states_machine.state_machine import TaskScheduler
 
@@ -42,6 +45,7 @@ class DockingTask:
         self.pixhawk = pixhawk
         self.state_machine = state_machine  # 状态机引用
         tracking_config = tracking_config or {}
+        self.tracking_config = tracking_config
         self.stage = self.STATE_SEARCH  # 初始状态为搜索
         
         # 控制器
@@ -58,8 +62,13 @@ class DockingTask:
             pre_dock_position_tolerance_m=tracking_config.get("pre_dock_position_tolerance_m", 0.05),
             pre_dock_distance_tolerance_m=tracking_config.get("pre_dock_distance_tolerance_m", 0.05),
             pre_dock_yaw_tolerance_deg=tracking_config.get("pre_dock_yaw_tolerance_deg", 5.0),
+            camera_to_body=tracking_config.get("camera_to_body", {}),
+            min_pre_dock_valid_frames=tracking_config.get("min_pre_dock_valid_frames", 3),
         )
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
+        self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
+        self.required_mode = tracking_config.get("required_mode", "GUIDED")
+        self.rc_mapper = RcOverrideMapper(tracking_config.get("rc_override", {}))
         self.estimator = ConstantVelocityEKF(max_lost_frames=tracking_config.get("max_lost_frames", 10))
         
         # 任务变量
@@ -71,8 +80,11 @@ class DockingTask:
         self.lost_counter = 0#容错
         self.max_lost_frames = tracking_config.get("max_lost_frames", 10)
         self.filtered_state = None
-        self.last_command = None
+        self.last_command = self.tracking_ctrl.neutral_command()
+        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        self.last_rc_override = {}
         self.pre_dock_ready = False
+        self.valid_observation_count = 0
         # 状态机所需属性
         self.name = "docking"
         self.status = "idle"
@@ -81,6 +93,9 @@ class DockingTask:
         """开始对接任务"""
         if self.enable_motion:
             try:
+                if self.output_backend == "rc_override":
+                    self.rc_mapper.validate_for_motion()
+
                 # 检查并解锁
                 if not self.pixhawk.is_armed():
                     self.pixhawk.arm_vehicle()
@@ -89,8 +104,8 @@ class DockingTask:
                 if not self.pixhawk.is_armed():
                     raise RuntimeError("飞控解锁失败")
 
-                # 设置飞控模式为GUIDED
-                if not self.pixhawk.set_mode('MANUAL'):
+                # 设置飞控模式，默认 GUIDED。仅 enable_motion=true 时执行。
+                if not self.pixhawk.set_mode(self.required_mode):
                     raise RuntimeError("飞控模式切换失败")
 
             except Exception as e:
@@ -138,14 +153,21 @@ class DockingTask:
         try:
             now = time.time()
             pose = self.camera.get_pose()
+            if pose is not None and not validate_pose_quality(pose, self.tracking_config):
+                print(f"[DockingTask] invalid pose rejected: {pose.get('reject_reason', '')}")
+                pose = None
             if pose is not None:
                 self.last_pose = pose
                 self.lost_counter = 0
+                self.valid_observation_count += 1
                 self.filtered_state = self.estimator.update(pose, pose.get("timestamp", now))
+                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=True)
             else:
                 self.lost_counter += 1
+                self.valid_observation_count = 0
                 print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 次丢失目标")
                 self.filtered_state = self.estimator.predict(now)
+                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=False)
                 if self.filtered_state.get("status") == "lost":
                     return self._handle_no_target()
 
@@ -185,8 +207,11 @@ class DockingTask:
             "last_pose": self.last_pose,
             "filtered_state": self.filtered_state,
             "control_cmd": self.last_command,
+            "mavlink_cmd": self.last_mavlink_command,
+            "rc_override": self.last_rc_override,
             "pre_dock_ready": self.pre_dock_ready,
             "enable_motion": self.enable_motion,
+            "output_backend": self.output_backend,
             "attempts": self.attempts
         }
 
@@ -196,6 +221,9 @@ class DockingTask:
         self.attempts += 1
         self.pre_dock_ready = False
         self.last_command = self.tracking_ctrl.neutral_command()
+        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        self.last_rc_override = {}
+        self.valid_observation_count = 0
         self.estimator.reset()
         if self.attempts >= self.max_attempts:
             self.stage = self.STATE_FAILED
@@ -211,8 +239,10 @@ class DockingTask:
         """处理目标丢失情况"""
         self.pre_dock_ready = False
         self.last_command = self.tracking_ctrl.neutral_command()
+        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
         if self.enable_motion:
-            self.pixhawk.send_velocity_command(self.last_command)
+            self._send_motion_command(self.last_command)
 
         if self.stage == self.STATE_SEARCH:
             # 检查搜索超时
@@ -237,9 +267,11 @@ class DockingTask:
 
         self.last_command = self.tracking_ctrl.compute_command(state)
         self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(state)
+        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
 
         if self.enable_motion:
-            self.pixhawk.send_velocity_command(self.last_command)
+            self._send_motion_command(self.last_command)
 
         print(f"[tracking] 📸 控制输出: {self.last_command}, dry_run={not self.enable_motion}")
         if self.pre_dock_ready:
@@ -247,6 +279,19 @@ class DockingTask:
             self.stage = self.STATE_PRE_ALIGN
         else:
             self.stage = self.STATE_TRACK
+
+    def _annotate_state(self, state, has_valid_observation):
+        state = dict(state or {})
+        state.update(camera_state_to_body_error(state, self.tracking_config))
+        state["has_valid_observation"] = bool(has_valid_observation)
+        state["valid_observation_count"] = self.valid_observation_count
+        return state
+
+    def _send_motion_command(self, command):
+        if self.output_backend == "rc_override":
+            self.pixhawk.send_rc_override(self.rc_mapper.map_motion_command(command))
+        else:
+            self.pixhawk.send_velocity_command(command)
 
     def _search_target(self):
         """搜索目标阶段 - 当检测到位姿时自动切换到接近状态"""

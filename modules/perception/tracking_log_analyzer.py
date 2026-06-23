@@ -12,6 +12,16 @@ RANGE_FIELDS = [
     "cmd_vy",
     "cmd_vz",
     "cmd_yaw_rate",
+    "motion_forward_m_s",
+    "motion_right_m_s",
+    "motion_up_m_s",
+    "motion_yaw_rate_rad_s",
+    "mavlink_vx",
+    "mavlink_vy",
+    "mavlink_vz",
+    "mavlink_yaw_rate",
+    "marker_pixel_size_px",
+    "reprojection_error_px",
 ]
 
 
@@ -44,8 +54,14 @@ def analyze_tracking_log(path):
 
     sample_count = len(rows)
     detected_count = sum(1 for row in rows if _truthy(row.get("detected")))
+    valid_pose_count = sum(1 for row in rows if _truthy(row.get("pose_valid")))
     pre_dock_ready_count = sum(1 for row in rows if _truthy(row.get("pre_dock_ready")))
     status_counts = Counter(row.get("tracking_status", "") or "unknown" for row in rows)
+    reject_reason_counts = Counter(
+        row.get("reject_reason", "") or "none"
+        for row in rows
+        if not _truthy(row.get("pose_valid")) and (row.get("reject_reason", "") or "")
+    )
     max_lost_frames = max((_as_int(row.get("lost_frames")) for row in rows), default=0)
 
     ranges = {}
@@ -60,8 +76,11 @@ def analyze_tracking_log(path):
         "sample_count": sample_count,
         "detected_count": detected_count,
         "detected_rate": detected_count / sample_count if sample_count else 0.0,
+        "valid_pose_count": valid_pose_count,
+        "valid_pose_rate": valid_pose_count / sample_count if sample_count else 0.0,
         "pre_dock_ready_count": pre_dock_ready_count,
         "status_counts": dict(status_counts),
+        "reject_reason_counts": dict(reject_reason_counts),
         "max_lost_frames": max_lost_frames,
         "ranges": ranges,
     }
@@ -72,6 +91,7 @@ def format_analysis_report(summary):
         f"log: {summary.get('path', '')}",
         f"samples: {summary['sample_count']}",
         f"detected: {summary['detected_count']} ({summary['detected_rate'] * 100:.1f}%)",
+        f"valid_pose: {summary.get('valid_pose_count', 0)} ({summary.get('valid_pose_rate', 0.0) * 100:.1f}%)",
         f"pre_dock_ready: {summary['pre_dock_ready_count']}",
         f"max_lost_frames: {summary['max_lost_frames']}",
         "status_counts:",
@@ -79,6 +99,11 @@ def format_analysis_report(summary):
 
     for status, count in sorted(summary.get("status_counts", {}).items()):
         lines.append(f"  {status}: {count}")
+
+    if summary.get("reject_reason_counts"):
+        lines.append("reject_reasons:")
+        for reason, count in sorted(summary.get("reject_reason_counts", {}).items()):
+            lines.append(f"  {reason}: {count}")
 
     if summary.get("ranges"):
         lines.append("ranges:")
