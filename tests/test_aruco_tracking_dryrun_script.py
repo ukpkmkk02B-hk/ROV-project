@@ -2,11 +2,14 @@ import unittest
 from argparse import Namespace
 from unittest.mock import patch
 
+import numpy as np
+
 from tools.run_aruco_tracking_dryrun import (
     build_rc_dryrun_mapper,
     format_control_direction,
     main,
     resolve_log_path,
+    show_preview_frame,
     update_pre_dock_observation_state,
 )
 
@@ -51,6 +54,10 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 device=None,
                 desired_z=None,
                 yaw_offset=None,
+                preview=False,
+                preview_scale=1.0,
+                preview_fps=10.0,
+                detection_scale=1.0,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -68,6 +75,10 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 device="/dev/video0",
                 desired_z=None,
                 yaw_offset=None,
+                preview=False,
+                preview_scale=1.0,
+                preview_fps=10.0,
+                detection_scale=1.0,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -85,6 +96,10 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 device="/dev/video0",
                 desired_z=0.2,
                 yaw_offset=None,
+                preview=False,
+                preview_scale=1.0,
+                preview_fps=10.0,
+                detection_scale=1.0,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
@@ -102,11 +117,39 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
                 device="/dev/video0",
                 desired_z=0.177,
                 yaw_offset=-90.0,
+                preview=False,
+                preview_scale=1.0,
+                preview_fps=10.0,
+                detection_scale=1.0,
             ),
         ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
             main()
 
         self.assertEqual(run_dryrun.call_args.kwargs["yaw_offset_override"], -90.0)
+
+    def test_main_passes_preview_options_to_dryrun(self):
+        with patch(
+            "tools.run_aruco_tracking_dryrun.parse_args",
+            return_value=Namespace(
+                config="config/settings.yaml",
+                log="logs/out.csv",
+                duration=20.0,
+                print_interval=0.5,
+                device="/dev/camera_main",
+                desired_z=0.173,
+                yaw_offset=None,
+                preview=True,
+                preview_scale=0.5,
+                preview_fps=8.0,
+                detection_scale=0.5,
+            ),
+        ), patch("tools.run_aruco_tracking_dryrun.run_dryrun") as run_dryrun:
+            main()
+
+        self.assertTrue(run_dryrun.call_args.kwargs["preview"])
+        self.assertEqual(run_dryrun.call_args.kwargs["preview_scale"], 0.5)
+        self.assertEqual(run_dryrun.call_args.kwargs["preview_fps"], 8.0)
+        self.assertEqual(run_dryrun.call_args.kwargs["detection_scale"], 0.5)
 
     def test_build_rc_dryrun_mapper_outputs_default_channels_when_runtime_rc_disabled(self):
         mapper = build_rc_dryrun_mapper(
@@ -131,6 +174,50 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
         self.assertEqual(channels["ch6"], 1490)
         self.assertEqual(channels["ch3"], 1505)
         self.assertEqual(channels["ch4"], 1520)
+
+    def test_show_preview_frame_draws_scaled_frame_and_quits_on_q(self):
+        class FakeTracker:
+            def get_annotated_frame(self):
+                return np.zeros((12, 16, 3), dtype=np.uint8)
+
+        class FakeCv2:
+            FONT_HERSHEY_SIMPLEX = 0
+            LINE_AA = 16
+            INTER_AREA = 3
+
+            def __init__(self):
+                self.put_text_calls = []
+                self.resize_calls = []
+                self.imshow_calls = []
+
+            def putText(self, *args):
+                self.put_text_calls.append(args)
+
+            def resize(self, frame, dsize, fx, fy, interpolation):
+                self.resize_calls.append((fx, fy, interpolation))
+                return frame
+
+            def imshow(self, name, frame):
+                self.imshow_calls.append((name, frame.shape))
+
+            def waitKey(self, delay):
+                return ord("q")
+
+        fake_cv2 = FakeCv2()
+
+        quit_requested = show_preview_frame(
+            FakeTracker(),
+            state={"status": "tracking", "lost_frames": 0},
+            rc_override={"ch3": 1500, "ch4": 1501, "ch5": 1502, "ch6": 1503},
+            pre_dock_ready=True,
+            preview_scale=0.5,
+            cv2_module=fake_cv2,
+        )
+
+        self.assertTrue(quit_requested)
+        self.assertGreaterEqual(len(fake_cv2.put_text_calls), 3)
+        self.assertEqual(fake_cv2.resize_calls, [(0.5, 0.5, fake_cv2.INTER_AREA)])
+        self.assertEqual(fake_cv2.imshow_calls[0][0], "ArUco tracking dry-run")
 
     def test_pre_dock_frame_count_survives_empty_poll_until_recent_pose_expires(self):
         count, last_counter, recent = update_pre_dock_observation_state(

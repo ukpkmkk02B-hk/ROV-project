@@ -1,12 +1,16 @@
 import math
+import logging
+import threading
 import unittest
 
 import numpy as np
 
 from modules.perception.marker_tracker import (
+    ArucoMarkerTracker,
     build_square_object_points,
     compute_marker_pixel_size,
     new_tracker_stats,
+    scale_detected_corners_to_original,
     update_tracker_stats,
     make_pose_dict,
     rotation_matrix_to_euler_deg,
@@ -84,6 +88,29 @@ class MarkerTrackerHelperTests(unittest.TestCase):
 
         self.assertAlmostEqual(compute_marker_pixel_size(corners), 40.0)
 
+    def test_scale_detected_corners_to_original_restores_full_resolution_points(self):
+        corners = [
+            np.array(
+                [
+                    [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
+                ],
+                dtype=np.float32,
+            )
+        ]
+
+        scaled = scale_detected_corners_to_original(corners, 0.5)
+
+        np.testing.assert_allclose(
+            scaled[0],
+            np.array(
+                [
+                    [[20.0, 40.0], [60.0, 40.0], [60.0, 80.0], [20.0, 80.0]],
+                ],
+                dtype=np.float32,
+            ),
+        )
+        self.assertIsNot(scaled[0], corners[0])
+
     def test_validate_pose_quality_accepts_good_pose_and_records_valid_state(self):
         pose = {
             "x": 0.1,
@@ -144,6 +171,24 @@ class MarkerTrackerHelperTests(unittest.TestCase):
         self.assertEqual(stats["tracker_quality_rejected_frames"], 1)
         self.assertEqual(stats["tracker_last_frame_timestamp"], 4.0)
         self.assertEqual(stats["tracker_last_valid_pose_timestamp"], 3.0)
+
+    def test_get_annotated_frame_returns_copy_of_latest_frame(self):
+        tracker = ArucoMarkerTracker.__new__(ArucoMarkerTracker)
+        tracker._frame_lock = threading.Lock()
+        tracker._latest_annotated_frame = None
+        tracker.thread = None
+        tracker.cap = None
+        tracker.logger = logging.getLogger(__name__)
+
+        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        tracker._set_annotated_frame(frame)
+
+        first = tracker.get_annotated_frame()
+        first[0, 0, 0] = 255
+        second = tracker.get_annotated_frame()
+
+        self.assertIsNot(first, frame)
+        self.assertEqual(second[0, 0, 0], 0)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,23 @@ def compute_marker_pixel_size(corners):
     return float(np.mean(edges))
 
 
+def normalize_detection_scale(value):
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if scale <= 0.0 or scale > 1.0:
+        return 1.0
+    return scale
+
+
+def scale_detected_corners_to_original(corners, detection_scale):
+    scale = normalize_detection_scale(detection_scale)
+    if not corners:
+        return corners
+    return [np.asarray(marker_corners, dtype=np.float32) / scale for marker_corners in corners]
+
+
 def compute_reprojection_error(object_points, image_points, rvec, tvec, camera_matrix, dist_coeffs):
     if cv2 is None:
         raise RuntimeError("OpenCV is required to compute reprojection error")
@@ -203,16 +220,31 @@ def apply_capture_settings(cap, config, cv2_module=None):
     cv2_module = cv2 if cv2_module is None else cv2_module
     width_prop = cv2_module.CAP_PROP_FRAME_WIDTH
     height_prop = cv2_module.CAP_PROP_FRAME_HEIGHT
+    fourcc_prop = getattr(cv2_module, "CAP_PROP_FOURCC", None)
+    fps_prop = getattr(cv2_module, "CAP_PROP_FPS", None)
 
+    if config.get("fourcc") and fourcc_prop is not None:
+        fourcc = str(config["fourcc"]).upper()
+        if len(fourcc) == 4:
+            cap.set(fourcc_prop, cv2_module.VideoWriter_fourcc(*fourcc))
     if config.get("frame_width"):
         cap.set(width_prop, int(config["frame_width"]))
     if config.get("frame_height"):
         cap.set(height_prop, int(config["frame_height"]))
+    if config.get("fps") and fps_prop is not None:
+        cap.set(fps_prop, float(config["fps"]))
 
-    return {
+    actual = {
         "frame_width": int(cap.get(width_prop)),
         "frame_height": int(cap.get(height_prop)),
     }
+    if fourcc_prop is not None and config.get("fourcc"):
+        fourcc_value = int(cap.get(fourcc_prop))
+        actual["frame_fourcc"] = "".join(chr((fourcc_value >> 8 * idx) & 0xFF) for idx in range(4))
+    if fps_prop is not None and config.get("fps"):
+        actual["frame_fps"] = float(cap.get(fps_prop))
+
+    return actual
 
 
 def open_first_readable_capture(candidates, config, cv2_module=None, capture_factory=None):
@@ -288,6 +320,8 @@ class ArucoMarkerTracker(CommunicationBase):
         self.min_detections = int(config.get("min_detections", 3))
         self.max_lost = int(config.get("max_lost", 10))
         self.enable_undistort_preview = bool(config.get("enable_undistort_preview", False))
+        self.enable_preview_annotations = bool(config.get("enable_preview_annotations", False))
+        self.detection_scale = normalize_detection_scale(config.get("detection_scale", 1.0))
         self.config = config
         self.actual_frame_size = None
         self.selected_device = None
@@ -303,6 +337,8 @@ class ArucoMarkerTracker(CommunicationBase):
         self._diagnostics_lock = threading.Lock()
         self.tracker_stats = new_tracker_stats()
         self._stats_lock = threading.Lock()
+        self._latest_annotated_frame = None
+        self._frame_lock = threading.Lock()
 
         self.camera_matrix, self.dist_coeffs = load_camera_parameters(config)
         self.object_points = build_square_object_points(self.marker_size_m)
@@ -405,6 +441,52 @@ class ArucoMarkerTracker(CommunicationBase):
                 pass
             self.pose_queue.put(pose, block=False)
 
+    def _set_annotated_frame(self, frame):
+        if frame is None:
+            return
+        with self._frame_lock:
+            self._latest_annotated_frame = frame.copy()
+
+    def get_annotated_frame(self):
+        with self._frame_lock:
+            if self._latest_annotated_frame is None:
+                return None
+            return self._latest_annotated_frame.copy()
+
+    def _draw_preview_text(self, frame, lines):
+        for idx, line in enumerate(lines):
+            y = 28 + idx * 24
+            cv2.putText(
+                frame,
+                str(line),
+                (16, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+    def _draw_detected_markers(self, frame, corners, ids):
+        if ids is None:
+            return
+        if hasattr(cv2.aruco, "drawDetectedMarkers"):
+            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            return
+        for marker_corners, marker_id in zip(corners, ids.flatten()):
+            points = np.asarray(marker_corners, dtype=np.int32).reshape(4, 2)
+            cv2.polylines(frame, [points], True, (0, 255, 0), 2)
+            cv2.putText(
+                frame,
+                str(int(marker_id)),
+                tuple(points[0]),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
+
     def _update_diagnostics(self, **updates):
         with self._diagnostics_lock:
             diagnostics = dict(self.latest_diagnostics)
@@ -435,18 +517,36 @@ class ArucoMarkerTracker(CommunicationBase):
 
     def process_frame(self, frame, timestamp=None):
         timestamp = time.time() if timestamp is None else timestamp
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        annotated = frame.copy() if self.enable_preview_annotations else None
+        if self.detection_scale < 1.0:
+            detection_frame = cv2.resize(
+                frame,
+                None,
+                fx=self.detection_scale,
+                fy=self.detection_scale,
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            detection_frame = frame
+        gray = cv2.cvtColor(detection_frame, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = self.detector.detectMarkers(gray)
+        corners = scale_detected_corners_to_original(corners, self.detection_scale)
         detected_ids = [] if ids is None else [int(v) for v in ids.flatten()]
         rejected_count = 0 if rejected is None else len(rejected)
+        if annotated is not None:
+            self._draw_detected_markers(annotated, corners, ids)
         self._update_diagnostics(
             detected_ids=detected_ids,
             rejected_count=rejected_count,
             pose_valid=False,
             reject_reason="no_marker",
+            detection_scale=self.detection_scale,
         )
         if ids is None:
             self._record_frame_result("no_marker", detected_ids, timestamp)
+            if annotated is not None:
+                self._draw_preview_text(annotated, [f"target id {self.marker_id}: no marker"])
+                self._set_annotated_frame(annotated)
             return None
 
         for marker_corners, found_id in zip(corners, ids.flatten()):
@@ -464,6 +564,9 @@ class ArucoMarkerTracker(CommunicationBase):
             if not ok:
                 self._record_frame_result("pnp_failed", detected_ids, timestamp)
                 self._update_diagnostics(reject_reason="pnp_failed")
+                if annotated is not None:
+                    self._draw_preview_text(annotated, [f"target id {self.marker_id}: pnp_failed"])
+                    self._set_annotated_frame(annotated)
                 return None
 
             rotation, _ = cv2.Rodrigues(rvec)
@@ -489,6 +592,28 @@ class ArucoMarkerTracker(CommunicationBase):
             pose["reprojection_error_px"] = reprojection_error
             validate_pose_quality(pose, self.config)
             result = "valid_pose" if pose["pose_valid"] else "quality_rejected"
+            if annotated is not None:
+                cv2.circle(annotated, (int(round(center[0])), int(round(center[1]))), 5, (0, 0, 255), -1)
+                if hasattr(cv2, "drawFrameAxes"):
+                    try:
+                        cv2.drawFrameAxes(
+                            annotated,
+                            self.camera_matrix,
+                            self.dist_coeffs,
+                            rvec,
+                            tvec,
+                            self.marker_size_m * 0.5,
+                        )
+                    except cv2.error as exc:
+                        self.logger.debug(f"drawFrameAxes failed: {exc}")
+                self._draw_preview_text(
+                    annotated,
+                    [
+                        f"id={int(found_id)} z={pose['z']:.3f}m yaw={pose['yaw']:.2f}deg",
+                        f"valid={pose['pose_valid']} reject={pose['reject_reason'] or '-'} reproj={reprojection_error:.2f}px",
+                    ],
+                )
+                self._set_annotated_frame(annotated)
             self._record_frame_result(result, detected_ids, timestamp)
             self._update_diagnostics(
                 marker_pixel_size_px=marker_pixel_size,
@@ -500,6 +625,12 @@ class ArucoMarkerTracker(CommunicationBase):
 
         self._record_frame_result("target_id_not_found", detected_ids, timestamp)
         self._update_diagnostics(reject_reason="target_id_not_found")
+        if annotated is not None:
+            self._draw_preview_text(
+                annotated,
+                [f"target id {self.marker_id}: not found", f"detected ids: {detected_ids}"],
+            )
+            self._set_annotated_frame(annotated)
         return None
 
     def get_pose(self):

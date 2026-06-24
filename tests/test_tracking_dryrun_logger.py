@@ -63,6 +63,8 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "device": "/dev/video0",
                     "frame_width": 1920,
                     "frame_height": 1080,
+                    "frame_fourcc": "MJPG",
+                    "frame_fps": 30.0,
                     "detected_ids": [20],
                     "rejected_count": 4,
                     "tracker_frames_processed": 30,
@@ -109,6 +111,8 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["rc_ch1"], "1500")
         self.assertEqual(row["device"], "/dev/video0")
         self.assertEqual(row["frame_width"], "1920")
+        self.assertEqual(row["frame_fourcc"], "MJPG")
+        self.assertEqual(row["frame_fps"], "30.0")
         self.assertEqual(row["detected_ids"], "20")
         self.assertEqual(row["rejected_count"], "4")
         self.assertEqual(row["marker_pixel_size_px"], "82.5")

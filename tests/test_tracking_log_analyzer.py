@@ -177,6 +177,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertEqual(summary["tracker_valid_pose_frames"], 30)
         self.assertAlmostEqual(summary["tracker_valid_pose_rate"], 0.6)
         self.assertAlmostEqual(summary["tracker_marker_rate"], 0.8)
+        self.assertAlmostEqual(summary["tracker_fps"], 125.0)
 
     def test_format_analysis_report_contains_key_metrics(self):
         report = format_analysis_report(
@@ -199,6 +200,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                 "tracker_target_rate": 0.7,
                 "tracker_valid_pose_frames": 30,
                 "tracker_valid_pose_rate": 0.6,
+                "tracker_fps": 12.5,
             }
         )
 
@@ -211,6 +213,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertIn("pre_dock_block_reasons:", report)
         self.assertIn("recent_observation_expired: 2", report)
         self.assertIn("tracker_frames: 50", report)
+        self.assertIn("tracker_fps: 12.50", report)
         self.assertIn("tracker_valid_pose_frames: 30 (60.0%)", report)
         self.assertIn("filtered_z: 0.820 .. 1.150", report)
         self.assertIn("rc_ch5: 1500.000 .. 1530.000", report)

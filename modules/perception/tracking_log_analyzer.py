@@ -91,6 +91,14 @@ def _last_counter(rows, field):
     return 0
 
 
+def _time_span_s(rows):
+    timestamps = [_as_float(row.get("timestamp")) for row in rows]
+    timestamps = [timestamp for timestamp in timestamps if timestamp is not None]
+    if len(timestamps) < 2:
+        return 0.0
+    return max(timestamps) - min(timestamps)
+
+
 def analyze_tracking_log(path):
     path = Path(path)
     with open(path, newline="", encoding="utf-8") as f:
@@ -127,12 +135,14 @@ def analyze_tracking_log(path):
 
     tracker_counts = {field: _last_counter(rows, field) for field in TRACKER_COUNT_FIELDS}
     tracker_frames = tracker_counts["tracker_frames_processed"]
+    duration_s = _time_span_s(rows)
     tracker_rates = {
         "tracker_marker_rate": tracker_counts["tracker_marker_frames"] / tracker_frames if tracker_frames else 0.0,
         "tracker_target_rate": tracker_counts["tracker_target_frames"] / tracker_frames if tracker_frames else 0.0,
         "tracker_valid_pose_rate": tracker_counts["tracker_valid_pose_frames"] / tracker_frames if tracker_frames else 0.0,
         "tracker_invalid_pose_rate": tracker_counts["tracker_invalid_pose_frames"] / tracker_frames if tracker_frames else 0.0,
         "tracker_no_marker_rate": tracker_counts["tracker_no_marker_frames"] / tracker_frames if tracker_frames else 0.0,
+        "tracker_fps": tracker_frames / duration_s if duration_s > 0.0 else 0.0,
     }
 
     summary = {
@@ -181,6 +191,7 @@ def format_analysis_report(summary):
     if summary.get("tracker_frames_processed"):
         lines.append("tracker_frame_counts:")
         lines.append(f"  tracker_frames: {summary.get('tracker_frames_processed', 0)}")
+        lines.append(f"  tracker_fps: {summary.get('tracker_fps', 0.0):.2f}")
         lines.append(
             "  tracker_marker_frames: "
             f"{summary.get('tracker_marker_frames', 0)} ({summary.get('tracker_marker_rate', 0.0) * 100:.1f}%)"

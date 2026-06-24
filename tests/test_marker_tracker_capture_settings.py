@@ -40,6 +40,27 @@ class MarkerTrackerCaptureSettingsTests(unittest.TestCase):
         self.assertEqual(cap.values[4], 1080)
         self.assertEqual(actual, {"frame_width": 1920, "frame_height": 1080})
 
+    def test_apply_capture_settings_sets_fourcc_fps_and_reports_actual_values(self):
+        cv2_stub = SimpleNamespace(
+            CAP_PROP_FRAME_WIDTH=3,
+            CAP_PROP_FRAME_HEIGHT=4,
+            CAP_PROP_FPS=5,
+            CAP_PROP_FOURCC=6,
+            VideoWriter_fourcc=lambda *chars: sum(ord(char) << (8 * idx) for idx, char in enumerate(chars)),
+        )
+        cap = FakeCapture()
+
+        actual = apply_capture_settings(
+            cap,
+            {"frame_width": 1920, "frame_height": 1080, "fourcc": "MJPG", "fps": 30},
+            cv2_module=cv2_stub,
+        )
+
+        self.assertEqual(cap.values[6], cv2_stub.VideoWriter_fourcc(*"MJPG"))
+        self.assertEqual(cap.values[5], 30)
+        self.assertEqual(actual["frame_fourcc"], "MJPG")
+        self.assertEqual(actual["frame_fps"], 30.0)
+
     def test_frame_size_matches_config_detects_resolution_mismatch(self):
         self.assertTrue(frame_size_matches_config({}, {"frame_width": 1280, "frame_height": 720}))
         self.assertTrue(

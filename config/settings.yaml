@@ -41,6 +41,8 @@ vision_tracking:
   camera_id: 0
   frame_width: 1920
   frame_height: 1080
+  fourcc: "MJPG"
+  fps: 30
   dictionary: "DICT_4X4_50"
   marker_id: 20
   marker_size_m: 0.04

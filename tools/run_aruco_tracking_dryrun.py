@@ -132,6 +132,52 @@ def build_rc_dryrun_mapper(config):
     return RcOverrideMapper(rc_config)
 
 
+def draw_preview_overlay(frame, state, rc_override, pre_dock_ready, cv2_module):
+    lines = [
+        f"status={state.get('status', 'unknown')} lost={state.get('lost_frames', '')} "
+        f"pre_dock={bool(pre_dock_ready)}",
+        "rc "
+        f"ch3={rc_override.get('ch3', '')} ch4={rc_override.get('ch4', '')} "
+        f"ch5={rc_override.get('ch5', '')} ch6={rc_override.get('ch6', '')}",
+        "press q to quit",
+    ]
+    height = frame.shape[0]
+    for idx, line in enumerate(lines):
+        y = max(24, height - 72 + idx * 24)
+        cv2_module.putText(
+            frame,
+            line,
+            (16, y),
+            cv2_module.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 255, 255),
+            2,
+            cv2_module.LINE_AA,
+        )
+    return frame
+
+
+def show_preview_frame(tracker, state, rc_override, pre_dock_ready, preview_scale=1.0, cv2_module=None):
+    if cv2_module is None:
+        import cv2
+
+        cv2_module = cv2
+    frame = tracker.get_annotated_frame()
+    if frame is None:
+        return False
+
+    frame = draw_preview_overlay(frame, state, rc_override, pre_dock_ready, cv2_module)
+    scale = float(preview_scale)
+    if scale <= 0.0:
+        scale = 1.0
+    if scale != 1.0:
+        frame = cv2_module.resize(frame, None, fx=scale, fy=scale, interpolation=cv2_module.INTER_AREA)
+
+    cv2_module.imshow("ArUco tracking dry-run", frame)
+    key = cv2_module.waitKey(1) & 0xFF
+    return key == ord("q")
+
+
 def run_dryrun(
     config_path,
     log_path,
@@ -140,6 +186,10 @@ def run_dryrun(
     device_override=None,
     desired_z_override=None,
     yaw_offset_override=None,
+    preview=False,
+    preview_scale=1.0,
+    preview_fps=10.0,
+    detection_scale=1.0,
 ):
     settings = load_settings(config_path)
     vision_config = dict(settings["vision_tracking"])
@@ -153,6 +203,8 @@ def run_dryrun(
         camera_to_body = dict(vision_config.get("camera_to_body", {}))
         camera_to_body["yaw_offset_deg"] = float(yaw_offset_override)
         vision_config["camera_to_body"] = camera_to_body
+    vision_config["detection_scale"] = float(detection_scale)
+    vision_config["enable_preview_annotations"] = bool(preview)
 
     log_path = resolve_log_path(vision_config, log_path)
     tracker = ArucoMarkerTracker(vision_config)
@@ -166,6 +218,8 @@ def run_dryrun(
 
     start_time = time.time()
     last_print = 0.0
+    last_preview = 0.0
+    preview_interval_s = 1.0 / float(preview_fps) if float(preview_fps) > 0.0 else 0.0
     tracker.start()
     try:
         with TrackingDryRunLogger(log_path) as logger:
@@ -240,9 +294,27 @@ def run_dryrun(
                     )
                     last_print = now
 
+                if preview and now - last_preview >= preview_interval_s:
+                    if show_preview_frame(
+                        tracker,
+                        state,
+                        rc_override,
+                        pre_dock_ready,
+                        preview_scale=preview_scale,
+                    ):
+                        break
+                    last_preview = now
+
                 time.sleep(0.02)
     finally:
         tracker.stop()
+        if preview:
+            import cv2
+
+            try:
+                cv2.destroyWindow("ArUco tracking dry-run")
+            except cv2.error:
+                pass
 
 
 def parse_args():
@@ -254,6 +326,15 @@ def parse_args():
     parser.add_argument("--device", default=None, help="Optional camera device override, for example /dev/video0")
     parser.add_argument("--desired-z", type=float, default=None, help="Temporary desired distance in meters for dry-run")
     parser.add_argument("--yaw-offset", type=float, default=None, help="Temporary yaw offset in degrees for dry-run")
+    parser.add_argument("--preview", action="store_true", help="Show annotated ArUco camera preview window")
+    parser.add_argument("--preview-scale", type=float, default=1.0, help="Scale factor for preview window, for example 0.5")
+    parser.add_argument("--preview-fps", type=float, default=10.0, help="Maximum preview refresh rate")
+    parser.add_argument(
+        "--detection-scale",
+        type=float,
+        default=1.0,
+        help="Scale input frames before ArUco detection, for example 0.5",
+    )
     return parser.parse_args()
 
 
@@ -267,6 +348,10 @@ def main():
         device_override=args.device,
         desired_z_override=args.desired_z,
         yaw_offset_override=args.yaw_offset,
+        preview=args.preview,
+        preview_scale=args.preview_scale,
+        preview_fps=args.preview_fps,
+        detection_scale=args.detection_scale,
     )
 
 
