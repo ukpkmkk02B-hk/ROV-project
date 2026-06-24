@@ -3,6 +3,7 @@ from argparse import Namespace
 from unittest.mock import patch
 
 from tools.run_aruco_tracking_dryrun import (
+    build_rc_dryrun_mapper,
     format_control_direction,
     main,
     resolve_log_path,
@@ -106,6 +107,30 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
             main()
 
         self.assertEqual(run_dryrun.call_args.kwargs["yaw_offset_override"], -90.0)
+
+    def test_build_rc_dryrun_mapper_outputs_default_channels_when_runtime_rc_disabled(self):
+        mapper = build_rc_dryrun_mapper(
+            {
+                "rc_override": {
+                    "enabled": False,
+                    "neutral_pwm": 1500,
+                    "min_pwm": 1400,
+                    "max_pwm": 1600,
+                    "pwm_per_m_s": 250,
+                    "pwm_per_rad_s": 200,
+                    "channels": {},
+                }
+            }
+        )
+
+        channels = mapper.map_motion_command(
+            {"forward_m_s": 0.04, "right_m_s": -0.04, "up_m_s": 0.02, "yaw_rate_rad_s": 0.1}
+        )
+
+        self.assertEqual(channels["ch5"], 1510)
+        self.assertEqual(channels["ch6"], 1490)
+        self.assertEqual(channels["ch3"], 1505)
+        self.assertEqual(channels["ch4"], 1520)
 
     def test_pre_dock_frame_count_survives_empty_poll_until_recent_pose_expires(self):
         count, last_counter, recent = update_pre_dock_observation_state(

@@ -115,6 +115,23 @@ def build_controller(config):
     )
 
 
+DEFAULT_DRYRUN_RC_CHANNELS = {
+    "forward": "ch5",
+    "right": "ch6",
+    "up": "ch3",
+    "yaw": "ch4",
+}
+
+
+def build_rc_dryrun_mapper(config):
+    """Build a dry-run RC mapper without enabling real RC motion output."""
+    rc_config = dict((config or {}).get("rc_override", {}) or {})
+    rc_config["enabled"] = True
+    if not rc_config.get("channels"):
+        rc_config["channels"] = dict(DEFAULT_DRYRUN_RC_CHANNELS)
+    return RcOverrideMapper(rc_config)
+
+
 def run_dryrun(
     config_path,
     log_path,
@@ -141,7 +158,7 @@ def run_dryrun(
     tracker = ArucoMarkerTracker(vision_config)
     estimator = ConstantVelocityEKF(max_lost_frames=vision_config.get("max_lost_frames", 10))
     controller = build_controller(vision_config)
-    rc_mapper = RcOverrideMapper(vision_config.get("rc_override", {}))
+    rc_mapper = build_rc_dryrun_mapper(vision_config)
     output_backend = vision_config.get("output_backend", "mavlink_velocity")
     valid_observation_count = 0
     pre_dock_valid_frame_count = 0

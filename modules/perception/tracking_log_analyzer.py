@@ -30,6 +30,14 @@ ALL_SAMPLE_RANGE_FIELDS = [
     "mavlink_vy",
     "mavlink_vz",
     "mavlink_yaw_rate",
+    "rc_ch1",
+    "rc_ch2",
+    "rc_ch3",
+    "rc_ch4",
+    "rc_ch5",
+    "rc_ch6",
+    "rc_ch7",
+    "rc_ch8",
 ]
 
 TRACKER_COUNT_FIELDS = [

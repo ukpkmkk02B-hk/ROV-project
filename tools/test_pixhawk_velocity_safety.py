@@ -126,6 +126,28 @@ def set_mode(master, mode_name, mavutil_module=mavutil):
     master.mav.set_mode_send(master.target_system, base_mode, custom_mode)
 
 
+def wait_for_mode(master, mode_name, timeout_s=1.0, sleeper=time.sleep, monotonic=time.monotonic):
+    deadline = monotonic() + max(0.0, float(timeout_s))
+    target = str(mode_name).lower()
+    heartbeat = None
+    while True:
+        current_mode = getattr(master, "flightmode", None)
+        if current_mode and current_mode.lower() == target:
+            return True, current_mode, heartbeat
+        if monotonic() >= deadline:
+            return False, current_mode or "UNKNOWN", heartbeat
+        try:
+            heartbeat = master.recv_match(type="HEARTBEAT", blocking=True, timeout=0.2)
+        except AttributeError:
+            heartbeat = master.wait_heartbeat(timeout=0.2)
+        except Exception:
+            heartbeat = None
+        current_mode = getattr(master, "flightmode", None)
+        if current_mode and current_mode.lower() == target:
+            return True, current_mode, heartbeat
+        sleeper(0.05)
+
+
 def send_arm_command(master, arm, mavutil_module=mavutil):
     master.mav.command_long_send(
         master.target_system,
@@ -155,6 +177,7 @@ def send_motion_for_duration(
     interval = 1.0 / float(send_hz)
     end_time = monotonic() + float(duration_s)
     sent_motion = False
+    counts = {"motion_frames_sent": 0, "neutral_frames_sent": 0}
     try:
         while True:
             now = monotonic()
@@ -168,6 +191,7 @@ def send_motion_for_duration(
                 mavutil_module=mavutil_module,
             )
             sent_motion = True
+            counts["motion_frames_sent"] += 1
             sleeper(interval)
     finally:
         send_body_velocity_command(
@@ -177,6 +201,7 @@ def send_motion_for_duration(
             MotionCommand.neutral(),
             mavutil_module=mavutil_module,
         )
+        counts["neutral_frames_sent"] += 1
         neutral_end = monotonic() + max(0.0, float(neutral_duration_s))
         while monotonic() < neutral_end:
             sleeper(interval)
@@ -187,6 +212,18 @@ def send_motion_for_duration(
                 MotionCommand.neutral(),
                 mavutil_module=mavutil_module,
             )
+            counts["neutral_frames_sent"] += 1
+    return counts
+
+
+def format_motion_command(axis, value, command):
+    return (
+        f"axis={axis} value={float(value)} "
+        f"forward_m_s={command.forward_m_s:.4f} "
+        f"right_m_s={command.right_m_s:.4f} "
+        f"up_m_s={command.up_m_s:.4f} "
+        f"yaw_rate_rad_s={command.yaw_rate_rad_s:.4f}"
+    )
 
 
 def build_arg_parser():
@@ -247,12 +284,19 @@ def main(
                 return 0
 
             command = build_motion_command(args.axis, args.value)
+            print(f"motion_command: {format_motion_command(args.axis, args.value, command)}", file=stdout)
             if args.set_mode:
+                print(f"set_mode_requested: {args.set_mode}", file=stdout)
                 set_mode(master, args.set_mode, mavutil_module=mavutil_module)
+                print("set_mode_sent: true", file=stdout)
+                mode_confirmed, mode_after_set, _ = wait_for_mode(master, args.set_mode, sleeper=sleeper)
+                print(f"mode_after_set: {mode_after_set}", file=stdout)
+                print(f"mode_change_confirmed: {str(mode_confirmed).lower()}", file=stdout)
             if args.arm:
+                print("arm_requested: true", file=stdout)
                 send_arm_command(master, True, mavutil_module=mavutil_module)
             try:
-                send_motion_for_duration(
+                counts = send_motion_for_duration(
                     master,
                     command,
                     validate_duration(args.duration),
@@ -260,9 +304,18 @@ def main(
                     sleeper=sleeper,
                     neutral_duration_s=neutral_duration_s,
                 )
+                print(f"motion_frames_sent: {counts['motion_frames_sent']}", file=stdout)
+                print(f"neutral_frames_sent: {counts['neutral_frames_sent']}", file=stdout)
             finally:
                 if args.arm:
                     send_arm_command(master, False, mavutil_module=mavutil_module)
+                    print("disarm_sent: true", file=stdout)
+            post_heartbeat = master.wait_heartbeat(timeout=1.0) or heartbeat
+            print(f"post_mode: {_mode_from_heartbeat(master, post_heartbeat)}", file=stdout)
+            print(
+                f"post_armed: {_armed_from_heartbeat(master, post_heartbeat, mavutil_module=mavutil_module)}",
+                file=stdout,
+            )
             return 0
         finally:
             if master is not None:

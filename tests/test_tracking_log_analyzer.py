@@ -38,6 +38,10 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "cmd_vy": "-0.02",
                         "cmd_vz": "0.01",
                         "cmd_yaw_rate": "-0.10",
+                        "rc_ch3": "1500",
+                        "rc_ch4": "1490",
+                        "rc_ch5": "1540",
+                        "rc_ch6": "1505",
                         "pose_valid": "1",
                         "reject_reason": "",
                         "marker_pixel_size_px": "85.0",
@@ -65,6 +69,10 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                         "cmd_vy": "0.00",
                         "cmd_vz": "0.00",
                         "cmd_yaw_rate": "-0.03",
+                        "rc_ch3": "1501",
+                        "rc_ch4": "1500",
+                        "rc_ch5": "1502",
+                        "rc_ch6": "1500",
                         "pose_valid": "0",
                         "reject_reason": "reprojection_error_too_high",
                         "marker_pixel_size_px": "84.0",
@@ -161,6 +169,8 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertEqual(summary["ranges"]["body_forward_m"], {"min": 1.15, "max": 1.15})
         self.assertEqual(summary["ranges"]["yaw_error_deg"], {"min": 8.0, "max": 8.0})
         self.assertEqual(summary["ranges"]["cmd_vx"], {"min": 0.0, "max": 0.16})
+        self.assertEqual(summary["ranges"]["rc_ch5"], {"min": 1502.0, "max": 1540.0})
+        self.assertEqual(summary["ranges"]["rc_ch6"], {"min": 1500.0, "max": 1505.0})
         self.assertEqual(summary["ranges"]["marker_pixel_size_px"], {"min": 85.0, "max": 85.0})
         self.assertEqual(summary["ranges"]["reprojection_error_px"], {"min": 1.2, "max": 1.2})
         self.assertEqual(summary["tracker_frames_processed"], 50)
@@ -181,7 +191,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
                 "status_counts": {"tracking": 2, "predicted": 1, "lost": 1},
                 "reject_reason_counts": {"no_pose": 2, "reprojection_error_too_high": 1},
                 "pre_dock_block_reason_counts": {"recent_observation_expired": 2, "yaw_error_high": 1},
-                "ranges": {"filtered_z": {"min": 0.82, "max": 1.15}},
+                "ranges": {"filtered_z": {"min": 0.82, "max": 1.15}, "rc_ch5": {"min": 1500, "max": 1530}},
                 "tracker_frames_processed": 50,
                 "tracker_marker_frames": 40,
                 "tracker_marker_rate": 0.8,
@@ -203,6 +213,7 @@ class TrackingLogAnalyzerTests(unittest.TestCase):
         self.assertIn("tracker_frames: 50", report)
         self.assertIn("tracker_valid_pose_frames: 30 (60.0%)", report)
         self.assertIn("filtered_z: 0.820 .. 1.150", report)
+        self.assertIn("rc_ch5: 1500.000 .. 1530.000", report)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import importlib
 import io
-import math
 import sys
 import tempfile
 import types
@@ -9,33 +8,24 @@ from pathlib import Path
 
 
 class FakeMavlinkConstants:
-    MAV_FRAME_LOCAL_NED = 1
-    MAV_FRAME_BODY_NED = 8
-    POSITION_TARGET_TYPEMASK_X_IGNORE = 1 << 0
-    POSITION_TARGET_TYPEMASK_Y_IGNORE = 1 << 1
-    POSITION_TARGET_TYPEMASK_Z_IGNORE = 1 << 2
-    POSITION_TARGET_TYPEMASK_AX_IGNORE = 1 << 3
-    POSITION_TARGET_TYPEMASK_AY_IGNORE = 1 << 4
-    POSITION_TARGET_TYPEMASK_AZ_IGNORE = 1 << 5
-    POSITION_TARGET_TYPEMASK_YAW_IGNORE = 1 << 10
-    POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE = 1 << 11
     MAV_CMD_COMPONENT_ARM_DISARM = 400
     MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
+    MAV_MODE_FLAG_SAFETY_ARMED = 128
 
 
 class FakeHeartbeat:
-    custom_mode = 4
+    custom_mode = 19
     base_mode = 0
 
 
 class FakeMav:
     def __init__(self):
-        self.position_targets = []
+        self.rc_overrides = []
         self.mode_commands = []
         self.long_commands = []
 
-    def set_position_target_local_ned_send(self, *args):
-        self.position_targets.append(args)
+    def rc_channels_override_send(self, *args):
+        self.rc_overrides.append(args)
 
     def set_mode_send(self, *args):
         self.mode_commands.append(args)
@@ -51,18 +41,20 @@ class FakeMaster:
     def __init__(self):
         self.mav = FakeMav()
         self.closed = False
-        self.wait_heartbeat_timeout = None
         self.flightmode = "MANUAL"
+        self.armed = False
 
     def wait_heartbeat(self, timeout=None):
-        self.wait_heartbeat_timeout = timeout
+        return FakeHeartbeat()
+
+    def recv_match(self, *args, **kwargs):
         return FakeHeartbeat()
 
     def mode_mapping(self):
-        return {"MANUAL": 0, "GUIDED": 4}
+        return {"MANUAL": 19, "STABILIZE": 0, "ALT_HOLD": 2}
 
     def motors_armed(self):
-        return False
+        return self.armed
 
     def close(self):
         self.closed = True
@@ -88,65 +80,53 @@ def import_tool_with_fake_mavutil(master):
     sys.modules["yaml"] = types.SimpleNamespace(
         safe_load=lambda _: {"pixhawk_comm": {"device": "/dev/ttl_pixhawk", "baud": 115200}}
     )
-    for name in [
-        "modules.comms.mavlink_velocity",
-        "modules.comms.pixhawk_comm",
-        "tools.test_pixhawk_velocity_safety",
-    ]:
-        sys.modules.pop(name, None)
-    return importlib.import_module("tools.test_pixhawk_velocity_safety"), fake_mavutil
+    sys.modules.pop("tools.test_pixhawk_rc_override_safety", None)
+    return importlib.import_module("tools.test_pixhawk_rc_override_safety"), fake_mavutil
 
 
-def write_config(directory, body=""):
+def write_config(directory):
     path = Path(directory) / "settings.yaml"
     path.write_text(
         "pixhawk_comm:\n"
         "  device: /dev/ttl_pixhawk\n"
-        "  baud: 115200\n"
-        f"{body}",
+        "  baud: 115200\n",
         encoding="utf-8",
     )
     return path
 
 
-class PixhawkVelocitySafetyToolTests(unittest.TestCase):
-    def test_default_status_check_does_not_send_motion_mode_or_arm_commands(self):
+class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
+    def test_default_status_check_does_not_send_rc_mode_or_arm_commands(self):
         master = FakeMaster()
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = write_config(tmpdir)
-
             exit_code = tool.main(
-                ["--config", str(config_path)],
+                ["--config", str(write_config(tmpdir))],
                 mavutil_module=fake_mavutil,
                 stdout=output,
             )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(fake_mavutil.connections, [("/dev/ttl_pixhawk", 115200)])
-        self.assertEqual(master.mav.position_targets, [])
+        self.assertEqual(master.mav.rc_overrides, [])
         self.assertEqual(master.mav.mode_commands, [])
         self.assertEqual(master.mav.long_commands, [])
+        self.assertIn("read_only: true", output.getvalue())
         self.assertTrue(master.closed)
-        self.assertIn("mode", output.getvalue())
 
-    def test_send_requires_explicit_motion_confirmation(self):
+    def test_send_requires_explicit_motion_confirmation_before_connecting(self):
         master = FakeMaster()
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)
         with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = write_config(tmpdir)
-
             exit_code = tool.main(
                 [
                     "--config",
-                    str(config_path),
+                    str(write_config(tmpdir)),
                     "--axis",
                     "forward",
-                    "--value",
-                    "0.03",
-                    "--duration",
-                    "1.0",
+                    "--pwm-offset",
+                    "30",
                     "--send",
                 ],
                 mavutil_module=fake_mavutil,
@@ -157,78 +137,32 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertEqual(fake_mavutil.connections, [])
 
-    def test_limits_reject_excessive_linear_yaw_and_duration_values(self):
+    def test_limits_reject_excessive_pwm_and_duration_values(self):
         master = FakeMaster()
         tool, _ = import_tool_with_fake_mavutil(master)
 
         with self.assertRaises(ValueError):
-            tool.build_motion_command("forward", 0.051)
-        with self.assertRaises(ValueError):
-            tool.build_motion_command("yaw", 5.1)
+            tool.build_override_channels("forward", 51)
         with self.assertRaises(ValueError):
             tool.validate_duration(2.1)
 
-    def test_axis_values_map_to_motion_command_fields(self):
-        master = FakeMaster()
-        tool, _ = import_tool_with_fake_mavutil(master)
-
-        self.assertEqual(tool.build_motion_command("forward", 0.03).forward_m_s, 0.03)
-        self.assertEqual(tool.build_motion_command("right", -0.02).right_m_s, -0.02)
-        self.assertEqual(tool.build_motion_command("up", 0.01).up_m_s, 0.01)
-        self.assertAlmostEqual(tool.build_motion_command("yaw", 5.0).yaw_rate_rad_s, math.radians(5.0))
-
-    def test_send_path_finishes_with_neutral_velocity(self):
-        master = FakeMaster()
-        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = write_config(tmpdir)
-
-            exit_code = tool.main(
-                [
-                    "--config",
-                    str(config_path),
-                    "--axis",
-                    "forward",
-                    "--value",
-                    "0.03",
-                    "--duration",
-                    "0.01",
-                    "--send",
-                    "--confirm-motion",
-                ],
-                mavutil_module=fake_mavutil,
-                sleeper=lambda _: None,
-                stdout=io.StringIO(),
-            )
-
-        self.assertEqual(exit_code, 0)
-        self.assertGreaterEqual(len(master.mav.position_targets), 2)
-        self.assertEqual(master.mav.position_targets[0][8], 0.03)
-        last_target = master.mav.position_targets[-1]
-        self.assertEqual(last_target[8], 0.0)
-        self.assertEqual(last_target[9], 0.0)
-        self.assertEqual(last_target[10], -0.0)
-        self.assertEqual(last_target[15], 0.0)
-
-    def test_send_path_prints_motion_mode_and_post_status_diagnostics(self):
+    def test_forward_send_path_sends_axis_pwm_then_neutral(self):
         master = FakeMaster()
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = write_config(tmpdir)
-
             exit_code = tool.main(
                 [
                     "--config",
-                    str(config_path),
+                    str(write_config(tmpdir)),
                     "--axis",
-                    "yaw",
-                    "--value",
-                    "3.0",
+                    "forward",
+                    "--pwm-offset",
+                    "30",
                     "--duration",
                     "0.01",
                     "--set-mode",
-                    "GUIDED",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
                 ],
@@ -239,45 +173,46 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
+        self.assertGreaterEqual(len(master.mav.rc_overrides), 2)
+        first = master.mav.rc_overrides[0]
+        last = master.mav.rc_overrides[-1]
+        self.assertEqual(first[0], master.target_system)
+        self.assertEqual(first[1], master.target_component)
+        self.assertEqual(first[6], 1530)
+        self.assertEqual(last[2:], (1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500))
         text = output.getvalue()
-        self.assertIn("set_mode_requested: GUIDED", text)
-        self.assertIn("mode_after_set: MANUAL", text)
-        self.assertIn("mode_change_confirmed: false", text)
-        self.assertIn("motion_command: axis=yaw value=3.0", text)
-        self.assertRegex(text, r"motion_frames_sent: [1-9]\d*")
+        self.assertIn("rc_override: axis=forward pwm_offset=30", text)
+        self.assertRegex(text, r"rc_frames_sent: [1-9]\d*")
         self.assertRegex(text, r"neutral_frames_sent: [1-9]\d*")
-        self.assertIn("post_mode:", text)
-        self.assertIn("post_armed:", text)
-        self.assertEqual(master.mav.mode_commands[0][2], 4)
+        self.assertIn("post_armed: False", text)
 
-    def test_mode_change_diagnostics_report_confirmed_when_mode_updates(self):
+    def test_arm_path_reports_confirmed_arm_and_disarm_states(self):
         master = FakeMaster()
+        original_command_long_send = master.mav.command_long_send
+
+        def command_long_and_update_armed(*args):
+            original_command_long_send(*args)
+            master.armed = bool(args[4])
+
+        master.mav.command_long_send = command_long_and_update_armed
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)
         output = io.StringIO()
-        original_set_mode_send = master.mav.set_mode_send
-
-        def set_mode_and_update_flightmode(*args):
-            original_set_mode_send(*args)
-            master.flightmode = "GUIDED"
-
-        master.mav.set_mode_send = set_mode_and_update_flightmode
         with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = write_config(tmpdir)
-
             exit_code = tool.main(
                 [
                     "--config",
-                    str(config_path),
+                    str(write_config(tmpdir)),
                     "--axis",
                     "forward",
-                    "--value",
-                    "0.03",
+                    "--pwm-offset",
+                    "20",
                     "--duration",
                     "0.01",
                     "--set-mode",
-                    "GUIDED",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
+                    "--arm",
                 ],
                 mavutil_module=fake_mavutil,
                 sleeper=lambda _: None,
@@ -287,8 +222,80 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         text = output.getvalue()
-        self.assertIn("mode_after_set: GUIDED", text)
-        self.assertIn("mode_change_confirmed: true", text)
+        self.assertIn("arm_requested: true", text)
+        self.assertIn("arm_after_request: True", text)
+        self.assertIn("arm_confirmed: true", text)
+        self.assertIn("disarm_sent: true", text)
+        self.assertIn("disarm_after_request: False", text)
+        self.assertIn("disarm_confirmed: true", text)
+
+    def test_arm_not_confirmed_skips_rc_motion_and_returns_error(self):
+        master = FakeMaster()
+        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = tool.main(
+                [
+                    "--config",
+                    str(write_config(tmpdir)),
+                    "--axis",
+                    "forward",
+                    "--pwm-offset",
+                    "20",
+                    "--duration",
+                    "0.01",
+                    "--send",
+                    "--confirm-motion",
+                    "--arm",
+                ],
+                mavutil_module=fake_mavutil,
+                sleeper=lambda _: None,
+                stdout=output,
+                neutral_duration_s=0.0,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(master.mav.rc_overrides, [])
+        text = output.getvalue()
+        self.assertIn("arm_after_request: False", text)
+        self.assertIn("arm_confirmed: false", text)
+
+    def test_disarm_not_confirmed_returns_error_after_neutral_rc(self):
+        master = FakeMaster()
+        original_command_long_send = master.mav.command_long_send
+
+        def command_long_only_arms(*args):
+            original_command_long_send(*args)
+            if args[4] == 1:
+                master.armed = True
+
+        master.mav.command_long_send = command_long_only_arms
+        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = tool.main(
+                [
+                    "--config",
+                    str(write_config(tmpdir)),
+                    "--axis",
+                    "forward",
+                    "--pwm-offset",
+                    "20",
+                    "--duration",
+                    "0.01",
+                    "--send",
+                    "--confirm-motion",
+                    "--arm",
+                ],
+                mavutil_module=fake_mavutil,
+                sleeper=lambda _: None,
+                stdout=output,
+                neutral_duration_s=0.0,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertGreaterEqual(len(master.mav.rc_overrides), 2)
+        self.assertIn("disarm_confirmed: false", output.getvalue())
 
 
 if __name__ == "__main__":
