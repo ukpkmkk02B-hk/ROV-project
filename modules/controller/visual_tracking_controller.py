@@ -1,6 +1,7 @@
 import math
 
 from modules.controller.motion_command import MotionCommand, camera_state_to_body_error
+from modules.controller.pid_controller import MultiAxisPidController
 
 
 def _clamp(value, low, high):
@@ -34,6 +35,8 @@ class VisualTrackingController:
         camera_to_body=None,
         min_pre_dock_valid_frames=1,
         pre_dock_recent_observation_max_age_s=0.5,
+        control_mode="p",
+        pid_config=None,
     ):
         self.desired_z_m = float(desired_z_m)
         self.max_v_m_s = float(max_v_m_s)
@@ -48,6 +51,8 @@ class VisualTrackingController:
         self.camera_to_body = camera_to_body or {}
         self.min_pre_dock_valid_frames = int(min_pre_dock_valid_frames)
         self.pre_dock_recent_observation_max_age_s = float(pre_dock_recent_observation_max_age_s)
+        self.control_mode = str(control_mode or "p").lower()
+        self.pid = MultiAxisPidController(self._build_pid_config(pid_config or {}))
 
     def compute_command(self, state):
         state = self._body_error(state)
@@ -56,16 +61,27 @@ class VisualTrackingController:
         vertical_error = float(state.get("up_m", 0.0))
         yaw_error_deg = float(state.get("yaw_error_deg", 0.0))
 
-        forward = _clamp(self.kp_distance * distance_error, -self.max_v_m_s, self.max_v_m_s)
-        right = _clamp(self.kp_lateral * lateral_error, -self.max_v_m_s, self.max_v_m_s)
-        up = _clamp(self.kp_vertical * vertical_error, -self.max_v_m_s, self.max_v_m_s)
-        yaw_rate = _clamp(
-            -self.kp_yaw * math.radians(yaw_error_deg),
-            -self.max_yaw_rate_rad_s,
-            self.max_yaw_rate_rad_s,
-        )
+        if self.control_mode == "pid":
+            command = self._compute_pid_command(
+                distance_error=distance_error,
+                lateral_error=lateral_error,
+                vertical_error=vertical_error,
+                yaw_error_deg=yaw_error_deg,
+                timestamp=state.get("timestamp"),
+            )
+        else:
+            command = MotionCommand(
+                _clamp(self.kp_distance * distance_error, -self.max_v_m_s, self.max_v_m_s),
+                _clamp(self.kp_lateral * lateral_error, -self.max_v_m_s, self.max_v_m_s),
+                _clamp(self.kp_vertical * vertical_error, -self.max_v_m_s, self.max_v_m_s),
+                _clamp(
+                    -self.kp_yaw * math.radians(yaw_error_deg),
+                    -self.max_yaw_rate_rad_s,
+                    self.max_yaw_rate_rad_s,
+                ),
+            ).as_dict()
 
-        return MotionCommand(forward, right, up, yaw_rate).as_dict()
+        return command
 
     def neutral_command(self):
         return MotionCommand.neutral().as_dict()
@@ -183,3 +199,59 @@ class VisualTrackingController:
         if all(key in state for key in ("forward_m", "right_m", "up_m", "yaw_error_deg")):
             return state
         return camera_state_to_body_error(state, {"camera_to_body": self.camera_to_body})
+
+    def _compute_pid_command(self, distance_error, lateral_error, vertical_error, yaw_error_deg, timestamp=None):
+        errors = {
+            "forward": distance_error,
+            "right": lateral_error,
+            "up": vertical_error,
+            "yaw": -math.radians(yaw_error_deg),
+        }
+        outputs, diagnostics = self.pid.update(errors, timestamp=timestamp)
+        command = MotionCommand(
+            outputs.get("forward", 0.0),
+            outputs.get("right", 0.0),
+            outputs.get("up", 0.0),
+            outputs.get("yaw", 0.0),
+        ).as_dict()
+        command.update(diagnostics)
+        return command
+
+    def _build_pid_config(self, pid_config):
+        return {
+            "forward": self._axis_pid_config(pid_config, "forward", self.kp_distance, self.max_v_m_s),
+            "right": self._axis_pid_config(pid_config, "right", self.kp_lateral, self.max_v_m_s),
+            "up": self._axis_pid_config(pid_config, "up", self.kp_vertical, self.max_v_m_s),
+            "yaw": self._axis_pid_config(
+                pid_config,
+                "yaw",
+                self.kp_yaw,
+                self.max_yaw_rate_rad_s,
+                output_limit_deg_key="output_limit_deg_s",
+                integral_limit_deg_key="integral_limit_deg",
+            ),
+        }
+
+    def _axis_pid_config(
+        self,
+        pid_config,
+        axis,
+        default_kp,
+        default_output_limit,
+        output_limit_deg_key=None,
+        integral_limit_deg_key=None,
+    ):
+        axis_config = dict((pid_config or {}).get(axis, {}) or {})
+        output_limit = axis_config.get("output_limit", default_output_limit)
+        if output_limit_deg_key and output_limit_deg_key in axis_config:
+            output_limit = math.radians(float(axis_config[output_limit_deg_key]))
+        integral_limit = axis_config.get("integral_limit")
+        if integral_limit_deg_key and integral_limit_deg_key in axis_config:
+            integral_limit = math.radians(float(axis_config[integral_limit_deg_key]))
+        return {
+            "kp": axis_config.get("kp", default_kp),
+            "ki": axis_config.get("ki", 0.0),
+            "kd": axis_config.get("kd", 0.0),
+            "integral_limit": integral_limit,
+            "output_limit": output_limit,
+        }

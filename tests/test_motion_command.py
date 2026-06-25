@@ -71,6 +71,22 @@ class RcOverrideMapperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mapper.validate_for_motion()
 
+    def test_mapper_requires_explicit_enable_for_real_motion_output(self):
+        mapper = RcOverrideMapper(
+            {
+                "enabled": False,
+                "channels": {
+                    "forward": "ch5",
+                    "right": "ch6",
+                    "up": "ch3",
+                    "yaw": "ch4",
+                },
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            mapper.validate_for_motion(require_enabled=True)
+
     def test_mapper_converts_motion_to_configured_rc_channels(self):
         mapper = RcOverrideMapper(
             {

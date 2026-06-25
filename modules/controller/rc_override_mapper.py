@@ -18,7 +18,9 @@ class RcOverrideMapper:
         self.pwm_per_rad_s = float(self.config.get("pwm_per_rad_s", 200))
         self.axis_signs = dict(self.config.get("axis_signs") or {})
 
-    def validate_for_motion(self):
+    def validate_for_motion(self, require_enabled=False):
+        if require_enabled and not self.enabled:
+            raise ValueError("rc_override must be enabled before real motion output")
         if not self.enabled:
             return True
         missing = [axis for axis in self.REQUIRED_AXES if axis not in self.channels]

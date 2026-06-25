@@ -112,6 +112,8 @@ def build_controller(config):
         camera_to_body=config.get("camera_to_body", {}),
         min_pre_dock_valid_frames=config.get("min_pre_dock_valid_frames", 3),
         pre_dock_recent_observation_max_age_s=config.get("pre_dock_recent_observation_max_age_s", 0.5),
+        control_mode=config.get("control_mode", "p"),
+        pid_config=config.get("pid", {}),
     )
 
 

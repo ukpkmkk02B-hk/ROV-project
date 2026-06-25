@@ -57,6 +57,26 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "vy": -0.02,
                     "vz": 0.03,
                     "yaw_rate": -0.04,
+                    "pid_forward_error": 0.01,
+                    "pid_forward_p": 0.011,
+                    "pid_forward_i": 0.012,
+                    "pid_forward_d": 0.013,
+                    "pid_forward_output": 0.01,
+                    "pid_right_error": -0.02,
+                    "pid_right_p": -0.021,
+                    "pid_right_i": -0.022,
+                    "pid_right_d": -0.023,
+                    "pid_right_output": -0.02,
+                    "pid_up_error": 0.03,
+                    "pid_up_p": 0.031,
+                    "pid_up_i": 0.032,
+                    "pid_up_d": 0.033,
+                    "pid_up_output": 0.03,
+                    "pid_yaw_error": -0.04,
+                    "pid_yaw_p": -0.041,
+                    "pid_yaw_i": -0.042,
+                    "pid_yaw_d": -0.043,
+                    "pid_yaw_output": -0.04,
                 },
                 pre_dock_ready=True,
                 diagnostics={
@@ -107,6 +127,15 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["motion_right_m_s"], "-0.02")
         self.assertEqual(row["motion_up_m_s"], "0.03")
         self.assertEqual(row["motion_yaw_rate_rad_s"], "-0.04")
+        self.assertEqual(row["pid_forward_error"], "0.01")
+        self.assertEqual(row["pid_forward_p"], "0.011")
+        self.assertEqual(row["pid_forward_i"], "0.012")
+        self.assertEqual(row["pid_forward_d"], "0.013")
+        self.assertEqual(row["pid_forward_output"], "0.01")
+        self.assertEqual(row["pid_right_error"], "-0.02")
+        self.assertEqual(row["pid_up_output"], "0.03")
+        self.assertEqual(row["pid_yaw_d"], "-0.043")
+        self.assertEqual(row["pid_yaw_output"], "-0.04")
         self.assertEqual(row["mavlink_vz"], "-0.03")
         self.assertEqual(row["rc_ch1"], "1500")
         self.assertEqual(row["device"], "/dev/video0")

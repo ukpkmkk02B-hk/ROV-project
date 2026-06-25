@@ -27,6 +27,41 @@ class VisualTrackingControllerTests(unittest.TestCase):
         self.assertEqual(command["vz"], command["up_m_s"])
         self.assertAlmostEqual(command["v_yaw"], command["yaw_rate_rad_s"])
 
+    def test_pid_mode_uses_pid_outputs_and_reports_diagnostics(self):
+        controller = VisualTrackingController(
+            desired_z_m=0.8,
+            max_v_m_s=0.4,
+            max_yaw_rate_deg_s=25.0,
+            control_mode="pid",
+            pid_config={
+                "forward": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "right": {"kp": 2.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "up": {"kp": 3.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "yaw": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": math.radians(25.0)},
+            },
+        )
+
+        command = controller.compute_command(
+            {
+                "forward_m": 1.0,
+                "right_m": -0.1,
+                "up_m": 0.05,
+                "yaw_error_deg": 10.0,
+                "timestamp": 1.0,
+            }
+        )
+
+        self.assertAlmostEqual(command["forward_m_s"], 0.2)
+        self.assertAlmostEqual(command["right_m_s"], -0.2)
+        self.assertAlmostEqual(command["up_m_s"], 0.15)
+        self.assertAlmostEqual(command["yaw_rate_rad_s"], -math.radians(10.0))
+        self.assertAlmostEqual(command["pid_forward_error"], 0.2)
+        self.assertAlmostEqual(command["pid_right_error"], -0.1)
+        self.assertAlmostEqual(command["pid_up_error"], 0.05)
+        self.assertAlmostEqual(command["pid_yaw_error"], -math.radians(10.0))
+        self.assertAlmostEqual(command["pid_forward_output"], command["forward_m_s"])
+        self.assertAlmostEqual(command["pid_yaw_output"], command["yaw_rate_rad_s"])
+
     def test_pre_dock_ready_requires_distance_centering_and_yaw_tolerance(self):
         controller = VisualTrackingController(
             desired_z_m=0.8,

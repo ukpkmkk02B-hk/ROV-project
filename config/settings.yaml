@@ -70,23 +70,53 @@ vision_tracking:
   desired_z_m: 0.8
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 25.0
+  control_mode: "pid"
   kp_lateral: 0.4
   kp_vertical: 0.3
   kp_distance: 0.4
   kp_yaw: 1.0
+  pid:
+    forward:
+      kp: 0.4
+      ki: 0.0
+      kd: 0.05
+      integral_limit: 0.1
+      output_limit: 0.4
+    right:
+      kp: 0.4
+      ki: 0.0
+      kd: 0.05
+      integral_limit: 0.1
+      output_limit: 0.4
+    up:
+      kp: 0.3
+      ki: 0.0
+      kd: 0.03
+      integral_limit: 0.1
+      output_limit: 0.4
+    yaw:
+      kp: 1.0
+      ki: 0.0
+      kd: 0.05
+      integral_limit_deg: 5.0
+      output_limit_deg_s: 25.0
   enable_motion: false
-  output_backend: "mavlink_velocity"
-  required_mode: "GUIDED"
+  output_backend: "rc_override"
+  required_mode: "STABILIZE"
   min_pre_dock_valid_frames: 3
   pre_dock_recent_observation_max_age_s: 0.5
   rc_override:
-    enabled: false
+    enabled: true
     neutral_pwm: 1500
     min_pwm: 1400
     max_pwm: 1600
     pwm_per_m_s: 250
     pwm_per_rad_s: 200
-    channels: {}
+    channels:
+      forward: "ch5"
+      right: "ch6"
+      up: "ch3"
+      yaw: "ch4"
   pre_dock_position_tolerance_m: 0.05
   pre_dock_distance_tolerance_m: 0.05
   pre_dock_yaw_tolerance_deg: 5.0

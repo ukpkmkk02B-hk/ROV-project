@@ -33,6 +33,7 @@ class DockingTask:
     
     MAX_SEARCH_TIME = 3.0  # 最大搜索时间（秒）
     SEARCH_SPEED = 0.2  # 搜索旋转速度 (rad/s)
+    VALID_OUTPUT_BACKENDS = {"mavlink_velocity", "rc_override"}
 
     def __init__(self, camera, pixhawk, state_machine, tracking_config=None):
         """
@@ -65,6 +66,8 @@ class DockingTask:
             camera_to_body=tracking_config.get("camera_to_body", {}),
             min_pre_dock_valid_frames=tracking_config.get("min_pre_dock_valid_frames", 3),
             pre_dock_recent_observation_max_age_s=tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5),
+            control_mode=tracking_config.get("control_mode", "p"),
+            pid_config=tracking_config.get("pid", {}),
         )
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
         self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
@@ -98,8 +101,7 @@ class DockingTask:
         """开始对接任务"""
         if self.enable_motion:
             try:
-                if self.output_backend == "rc_override":
-                    self.rc_mapper.validate_for_motion()
+                self._validate_motion_output_config()
 
                 # 检查并解锁
                 if not self.pixhawk.is_armed():
@@ -310,8 +312,16 @@ class DockingTask:
     def _send_motion_command(self, command):
         if self.output_backend == "rc_override":
             self.pixhawk.send_rc_override(self.rc_mapper.map_motion_command(command))
-        else:
+        elif self.output_backend == "mavlink_velocity":
             self.pixhawk.send_velocity_command(command)
+        else:
+            raise RuntimeError(f"unsupported output_backend: {self.output_backend}")
+
+    def _validate_motion_output_config(self):
+        if self.output_backend not in self.VALID_OUTPUT_BACKENDS:
+            raise RuntimeError(f"unsupported output_backend: {self.output_backend}")
+        if self.output_backend == "rc_override":
+            self.rc_mapper.validate_for_motion(require_enabled=True)
 
     def _search_target(self):
         """搜索目标阶段 - 当检测到位姿时自动切换到接近状态"""

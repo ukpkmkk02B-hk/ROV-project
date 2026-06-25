@@ -215,6 +215,56 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(task.status, "failed")
         self.assertIn(("failed", "docking"), state_machine.events)
 
+    def test_rc_override_backend_requires_explicit_enable_before_motion(self):
+        module = import_docking_with_stubs()
+        pixhawk = FakePixhawk()
+        state_machine = FakeStateMachine()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=state_machine,
+            tracking_config={
+                "enable_motion": True,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": False,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+
+        self.assertEqual(task.status, "failed")
+        self.assertEqual(pixhawk.arm_calls, 0)
+        self.assertEqual(pixhawk.mode_calls, [])
+        self.assertIn(("failed", "docking"), state_machine.events)
+
+    def test_motion_enabled_rejects_unknown_output_backend_before_arming(self):
+        module = import_docking_with_stubs()
+        pixhawk = FakePixhawk()
+        state_machine = FakeStateMachine()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=state_machine,
+            tracking_config={"enable_motion": True, "output_backend": "unknown_backend"},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+
+        self.assertEqual(task.status, "failed")
+        self.assertEqual(pixhawk.arm_calls, 0)
+        self.assertEqual(pixhawk.mode_calls, [])
+        self.assertIn(("failed", "docking"), state_machine.events)
+
     def test_invalid_pose_is_not_used_to_update_filter_or_control(self):
         module = import_docking_with_stubs()
         invalid_pose = {
