@@ -103,6 +103,10 @@ class DockingTask:
             try:
                 self._validate_motion_output_config()
 
+                # 设置飞控模式，仅 enable_motion=true 时执行；先确认模式再解锁。
+                if not self.pixhawk.set_mode(self.required_mode):
+                    raise RuntimeError("飞控模式切换失败")
+
                 # 检查并解锁
                 if not self.pixhawk.is_armed():
                     self.pixhawk.arm_vehicle()
@@ -110,10 +114,6 @@ class DockingTask:
 
                 if not self.pixhawk.is_armed():
                     raise RuntimeError("飞控解锁失败")
-
-                # 设置飞控模式，默认 GUIDED。仅 enable_motion=true 时执行。
-                if not self.pixhawk.set_mode(self.required_mode):
-                    raise RuntimeError("飞控模式切换失败")
 
             except Exception as e:
                 print(f"[DockingTask] ❌ 启动失败: {e}")

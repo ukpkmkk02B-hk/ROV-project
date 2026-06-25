@@ -29,6 +29,54 @@ class PidAxisControllerTests(unittest.TestCase):
         self.assertAlmostEqual(result.i, 2.0)
         self.assertAlmostEqual(result.output, 1.0)
 
+    def test_axis_controller_suppresses_derivative_when_dt_is_too_small(self):
+        controller = PidAxisController(
+            kp=1.0,
+            ki=0.0,
+            kd=10.0,
+            output_limit=10.0,
+            derivative_min_dt_s=0.08,
+        )
+
+        controller.update(error=0.0, timestamp=1.0)
+        result = controller.update(error=1.0, timestamp=1.02)
+
+        self.assertEqual(result.d, 0.0)
+        self.assertEqual(result.output, 1.0)
+
+    def test_axis_controller_keeps_derivative_reference_when_dt_is_too_small(self):
+        controller = PidAxisController(
+            kp=0.0,
+            ki=0.0,
+            kd=0.1,
+            output_limit=10.0,
+            derivative_min_dt_s=0.08,
+        )
+
+        controller.update(error=0.0, timestamp=1.0)
+        suppressed = controller.update(error=1.0, timestamp=1.02)
+        result = controller.update(error=2.0, timestamp=1.10)
+
+        self.assertEqual(suppressed.d, 0.0)
+        self.assertAlmostEqual(result.dt, 0.10)
+        self.assertAlmostEqual(result.d, 2.0)
+        self.assertAlmostEqual(result.output, 2.0)
+
+    def test_axis_controller_clamps_derivative_term_independently(self):
+        controller = PidAxisController(
+            kp=0.0,
+            ki=0.0,
+            kd=10.0,
+            output_limit=10.0,
+            d_limit=0.2,
+        )
+
+        controller.update(error=0.0, timestamp=1.0)
+        result = controller.update(error=1.0, timestamp=2.0)
+
+        self.assertEqual(result.d, 0.2)
+        self.assertEqual(result.output, 0.2)
+
     def test_axis_controller_reset_clears_history(self):
         controller = PidAxisController(kp=1.0, ki=1.0, kd=1.0, integral_limit=10.0, output_limit=10.0)
 
@@ -47,7 +95,7 @@ class MultiAxisPidControllerTests(unittest.TestCase):
         controller = MultiAxisPidController(
             {
                 "forward": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
-                "yaw": {"kp": 2.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.2},
+                "yaw": {"kp": 2.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.2, "d_limit": 0.1},
             }
         )
 

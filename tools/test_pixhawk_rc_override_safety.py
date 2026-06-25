@@ -145,6 +145,8 @@ def validate_request(args):
         raise ValueError("--set-mode is only allowed with --send")
     if args.arm and not args.send:
         raise ValueError("--arm is only allowed with --send")
+    if args.arm and not args.set_mode:
+        raise ValueError("--arm requires --set-mode")
     if not args.send:
         return
     if not args.confirm_motion:
@@ -191,6 +193,9 @@ def main(
                 confirmed, mode_after_set, _ = wait_for_mode(master, args.set_mode, sleeper=sleeper)
                 print(f"mode_after_set: {mode_after_set}", file=stdout)
                 print(f"mode_change_confirmed: {str(confirmed).lower()}", file=stdout)
+                if not confirmed:
+                    print("error: mode_change_not_confirmed", file=stdout)
+                    return 2
             if args.arm:
                 print("arm_requested: true", file=stdout)
                 send_arm_command(master, True, mavutil_module=mavutil_module)

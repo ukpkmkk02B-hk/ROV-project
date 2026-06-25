@@ -254,4 +254,6 @@ class VisualTrackingController:
             "kd": axis_config.get("kd", 0.0),
             "integral_limit": integral_limit,
             "output_limit": output_limit,
+            "derivative_min_dt_s": axis_config.get("derivative_min_dt_s", 0.0),
+            "d_limit": axis_config.get("d_limit"),
         }

@@ -198,6 +198,42 @@ class DockingVisualTrackingTests(unittest.TestCase):
 
         self.assertEqual(pixhawk.mode_calls, ["GUIDED"])
 
+    def test_motion_enabled_sets_mode_before_arming(self):
+        module = import_docking_with_stubs()
+
+        class OrderedPixhawk(FakePixhawk):
+            def __init__(self):
+                super().__init__()
+                self.armed = False
+                self.events = []
+
+            def is_armed(self):
+                return self.armed
+
+            def arm_vehicle(self):
+                self.events.append("arm")
+                self.arm_calls += 1
+                self.armed = True
+
+            def set_mode(self, mode):
+                self.events.append(f"mode:{mode}")
+                return super().set_mode(mode)
+
+        pixhawk = OrderedPixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            tracking_config={"enable_motion": True, "required_mode": "STABILIZE"},
+        )
+
+        with patch("builtins.print"), patch.object(module.time, "sleep", return_value=None):
+            task.start()
+
+        self.assertEqual(pixhawk.events, ["mode:STABILIZE", "arm"])
+        self.assertEqual(pixhawk.mode_calls, ["STABILIZE"])
+        self.assertEqual(pixhawk.arm_calls, 1)
+
     def test_rc_override_backend_requires_explicit_mapping_before_motion(self):
         module = import_docking_with_stubs()
         pixhawk = FakePixhawk()

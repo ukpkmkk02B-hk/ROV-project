@@ -22,12 +22,23 @@ class PidResult:
 class PidAxisController:
     """Single-axis PID controller with symmetric integral and output limits."""
 
-    def __init__(self, kp=0.0, ki=0.0, kd=0.0, integral_limit=None, output_limit=None):
+    def __init__(
+        self,
+        kp=0.0,
+        ki=0.0,
+        kd=0.0,
+        integral_limit=None,
+        output_limit=None,
+        derivative_min_dt_s=0.0,
+        d_limit=None,
+    ):
         self.kp = float(kp)
         self.ki = float(ki)
         self.kd = float(kd)
         self.integral_limit = integral_limit
         self.output_limit = output_limit
+        self.derivative_min_dt_s = float(derivative_min_dt_s or 0.0)
+        self.d_limit = d_limit
         self.reset()
 
     def reset(self):
@@ -38,20 +49,26 @@ class PidAxisController:
     def update(self, error, timestamp=None):
         error = float(error)
         dt = self._compute_dt(timestamp)
-        if dt > 0.0:
+        accept_reference = self._last_error is None or timestamp is None or self._last_timestamp is None
+        if dt > 0.0 and dt >= self.derivative_min_dt_s:
             self._integral = _clamp(self._integral + error * dt, self.integral_limit)
-            derivative = 0.0 if self._last_error is None else (error - self._last_error) / dt
+            if self._last_error is None:
+                derivative = 0.0
+            else:
+                derivative = (error - self._last_error) / dt
+            accept_reference = True
         else:
             derivative = 0.0
 
         p = self.kp * error
         i = self.ki * self._integral
-        d = self.kd * derivative
+        d = _clamp(self.kd * derivative, self.d_limit)
         output = _clamp(p + i + d, self.output_limit)
 
-        self._last_error = error
-        if timestamp is not None:
-            self._last_timestamp = float(timestamp)
+        if accept_reference:
+            self._last_error = error
+            if timestamp is not None:
+                self._last_timestamp = float(timestamp)
 
         return PidResult(error=error, p=p, i=i, d=d, output=output, integral=self._integral, dt=dt)
 
@@ -73,6 +90,8 @@ class MultiAxisPidController:
                 kd=config.get("kd", 0.0),
                 integral_limit=config.get("integral_limit"),
                 output_limit=config.get("output_limit"),
+                derivative_min_dt_s=config.get("derivative_min_dt_s", 0.0),
+                d_limit=config.get("d_limit"),
             )
             for axis, config in (axis_configs or {}).items()
         }

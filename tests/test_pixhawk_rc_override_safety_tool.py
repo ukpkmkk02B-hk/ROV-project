@@ -244,6 +244,8 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
                     "20",
                     "--duration",
                     "0.01",
+                    "--set-mode",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
                     "--arm",
@@ -259,6 +261,69 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("arm_after_request: False", text)
         self.assertIn("arm_confirmed: false", text)
+
+    def test_arm_requires_set_mode_before_connecting(self):
+        master = FakeMaster()
+        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = tool.main(
+                [
+                    "--config",
+                    str(write_config(tmpdir)),
+                    "--axis",
+                    "forward",
+                    "--pwm-offset",
+                    "20",
+                    "--duration",
+                    "0.01",
+                    "--send",
+                    "--confirm-motion",
+                    "--arm",
+                ],
+                mavutil_module=fake_mavutil,
+                stdout=io.StringIO(),
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(fake_mavutil.connections, [])
+        self.assertIn("--arm requires --set-mode", stderr.getvalue())
+
+    def test_unconfirmed_mode_change_skips_arm_and_rc_motion(self):
+        master = FakeMaster()
+        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = tool.main(
+                [
+                    "--config",
+                    str(write_config(tmpdir)),
+                    "--axis",
+                    "forward",
+                    "--pwm-offset",
+                    "20",
+                    "--duration",
+                    "0.01",
+                    "--set-mode",
+                    "STABILIZE",
+                    "--send",
+                    "--confirm-motion",
+                    "--arm",
+                ],
+                mavutil_module=fake_mavutil,
+                sleeper=lambda _: None,
+                stdout=output,
+                neutral_duration_s=0.0,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(master.mav.rc_overrides, [])
+        self.assertEqual(master.mav.long_commands, [])
+        text = output.getvalue()
+        self.assertIn("mode_after_set: MANUAL", text)
+        self.assertIn("mode_change_confirmed: false", text)
+        self.assertIn("error: mode_change_not_confirmed", text)
 
     def test_disarm_not_confirmed_returns_error_after_neutral_rc(self):
         master = FakeMaster()
@@ -283,6 +348,8 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
                     "20",
                     "--duration",
                     "0.01",
+                    "--set-mode",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
                     "--arm",

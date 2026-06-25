@@ -1,4 +1,5 @@
 import unittest
+import re
 from pathlib import Path
 
 
@@ -10,11 +11,22 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn('output_backend: "rc_override"', text)
         self.assertIn('required_mode: "STABILIZE"', text)
         self.assertIn('control_mode: "pid"', text)
+        self.assertIn("max_yaw_rate_deg_s: 10.0", text)
         self.assertIn("pid:", text)
         self.assertIn("forward:", text)
         self.assertIn("right:", text)
         self.assertIn("up:", text)
         self.assertIn("yaw:", text)
+        self.assertNotIn("kd: 0.05", text)
+        self.assertNotIn("kd: 0.03", text)
+        self.assertGreaterEqual(text.count("kd: 0.0"), 4)
+        self.assertIn("derivative_min_dt_s: 0.08", text)
+        self.assertGreaterEqual(text.count("d_limit: 0.05"), 4)
+        self.assertIn("pwm_per_rad_s: 120", text)
+        yaw_block = re.search(r"    yaw:\n(?P<body>(?:      .+\n)+)", text).group("body")
+        self.assertIn("kp: 0.5", yaw_block)
+        self.assertIn("output_limit_deg_s: 10.0", yaw_block)
+        self.assertIn("d_limit: 0.05", yaw_block)
         self.assertIn("rc_override:", text)
         self.assertIn("enabled: true", text)
         self.assertIn('forward: "ch5"', text)
