@@ -333,6 +333,99 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertIsNone(status["last_pose"])
         self.assertEqual(status["filtered_state"]["status"], "lost")
 
+    def test_stationary_child_docking_mode_is_reported_without_child_motion(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "target_motion_mode": "stationary_child",
+                "child_command_mode": "disabled",
+                "control_deadband_m": 0.01,
+                "command_smoothing_alpha": 0.6,
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+
+        status = task.get_status()
+        self.assertEqual(status["target_motion_mode"], "stationary_child")
+        self.assertEqual(status["child_command_mode"], "disabled")
+        self.assertFalse(status["enable_motion"])
+        self.assertEqual(task.tracking_ctrl.control_deadband_m, 0.01)
+        self.assertEqual(task.tracking_ctrl.command_smoothing_alpha, 0.6)
+
+    def test_manual_dock_confirm_rejects_before_visual_pre_align(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={"enable_motion": False},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            result = task.confirm_manual_dock(source="unit_test")
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "not_pre_aligned")
+        status = task.get_status()
+        self.assertFalse(status["manual_dock_confirmed"])
+        self.assertEqual(status["dock_completion_rejected_reason"], "not_pre_aligned")
+        self.assertEqual(status["status"], "running")
+
+    def test_manual_dock_confirm_completes_without_starting_charging_by_default(self):
+        module = import_docking_with_stubs()
+        state_machine = FakeStateMachine()
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=state_machine,
+            tracking_config={"enable_motion": False},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task.pre_dock_ready = True
+            result = task.confirm_manual_dock(source="unit_test")
+
+        self.assertTrue(result["accepted"])
+        status = task.get_status()
+        self.assertEqual(status["stage"], module.DockingTask.STATE_DOCKED)
+        self.assertEqual(status["status"], "completed")
+        self.assertTrue(status["manual_dock_confirmed"])
+        self.assertEqual(status["dock_completion_source"], "unit_test")
+        self.assertFalse(status["charging_start_requested"])
+        self.assertTrue(pixhawk.stopped)
+        self.assertIn(("completed", "docking"), state_machine.events)
+        self.assertNotIn(("start_task", "charging"), state_machine.events)
+
+    def test_manual_dock_confirm_starts_charging_only_when_configured(self):
+        module = import_docking_with_stubs()
+        state_machine = FakeStateMachine()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=state_machine,
+            tracking_config={"enable_motion": False, "start_charging_after_dock": True},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task.pre_dock_ready = True
+            result = task.confirm_manual_dock(source="unit_test")
+
+        self.assertTrue(result["accepted"])
+        self.assertTrue(task.get_status()["charging_start_requested"])
+        self.assertIn(("start_task", "charging"), state_machine.events)
+
 
 if __name__ == "__main__":
     unittest.main()

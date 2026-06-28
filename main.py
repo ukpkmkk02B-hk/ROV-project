@@ -19,6 +19,7 @@ from modules.perception.camera import AprilTagCameraInterface
 from modules.perception.marker_tracker import ArucoMarkerTracker
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
+from modules.tasks.docking_confirmation import confirm_current_docking_task
 from modules.tasks.charging_task import ChargingTask
 from modules.tasks.fish_control_task import FishControlTask
 import yaml
@@ -238,6 +239,9 @@ def main():
             
             elif rov_cmd == "docking start":
                 scheduler.start_task("docking")
+
+            elif rov_cmd == "docking confirm":
+                status_update["docking_confirm"] = confirm_current_docking_task(scheduler, source="surface")
 
             elif rov_cmd == "docking stop":
                 scheduler.stop_current_task()

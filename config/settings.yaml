@@ -70,7 +70,12 @@ vision_tracking:
   desired_z_m: 0.8
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 10.0
+  target_motion_mode: "stationary_child"
+  child_command_mode: "disabled"
   control_mode: "pid"
+  control_deadband_m: 0.01
+  yaw_deadband_deg: 1.0
+  command_smoothing_alpha: 0.6
   kp_lateral: 0.4
   kp_vertical: 0.3
   kp_distance: 0.4
@@ -111,6 +116,7 @@ vision_tracking:
   enable_motion: false
   output_backend: "rc_override"
   required_mode: "STABILIZE"
+  start_charging_after_dock: false
   min_pre_dock_valid_frames: 3
   pre_dock_recent_observation_max_age_s: 0.5
   rc_override:

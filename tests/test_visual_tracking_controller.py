@@ -62,6 +62,74 @@ class VisualTrackingControllerTests(unittest.TestCase):
         self.assertAlmostEqual(command["pid_forward_output"], command["forward_m_s"])
         self.assertAlmostEqual(command["pid_yaw_output"], command["yaw_rate_rad_s"])
 
+    def test_deadband_suppresses_small_stationary_target_noise_before_pid(self):
+        controller = VisualTrackingController(
+            desired_z_m=0.8,
+            control_mode="pid",
+            control_deadband_m=0.02,
+            yaw_deadband_deg=2.0,
+            pid_config={
+                "forward": {"kp": 10.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "right": {"kp": 10.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "up": {"kp": 10.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "yaw": {"kp": 10.0, "ki": 0.0, "kd": 0.0, "output_limit": math.radians(25.0)},
+            },
+        )
+
+        command = controller.compute_command(
+            {
+                "forward_m": 0.815,
+                "right_m": -0.015,
+                "up_m": 0.015,
+                "yaw_error_deg": 1.5,
+                "timestamp": 1.0,
+            }
+        )
+
+        self.assertEqual(command["forward_m_s"], 0.0)
+        self.assertEqual(command["right_m_s"], 0.0)
+        self.assertEqual(command["up_m_s"], 0.0)
+        self.assertEqual(command["yaw_rate_rad_s"], 0.0)
+        self.assertEqual(command["pid_forward_error"], 0.0)
+        self.assertEqual(command["pid_right_error"], 0.0)
+        self.assertEqual(command["pid_up_error"], 0.0)
+        self.assertEqual(command["pid_yaw_error"], 0.0)
+        self.assertAlmostEqual(command["raw_forward_error_m"], 0.015)
+        self.assertAlmostEqual(command["raw_right_error_m"], -0.015)
+        self.assertAlmostEqual(command["raw_up_error_m"], 0.015)
+        self.assertAlmostEqual(command["raw_yaw_error_deg"], 1.5)
+        self.assertEqual(command["deadbanded_forward_error_m"], 0.0)
+        self.assertEqual(command["deadbanded_right_error_m"], 0.0)
+        self.assertEqual(command["deadbanded_up_error_m"], 0.0)
+        self.assertEqual(command["deadbanded_yaw_error_deg"], 0.0)
+        self.assertEqual(command["control_deadband_m"], 0.02)
+        self.assertEqual(command["yaw_deadband_deg"], 2.0)
+
+    def test_command_smoothing_limits_single_frame_control_jumps(self):
+        controller = VisualTrackingController(
+            desired_z_m=0.8,
+            control_mode="pid",
+            command_smoothing_alpha=0.5,
+            pid_config={
+                "forward": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "right": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "up": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "yaw": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": math.radians(25.0)},
+            },
+        )
+
+        first = controller.compute_command(
+            {"forward_m": 1.0, "right_m": 0.0, "up_m": 0.0, "yaw_error_deg": 0.0, "timestamp": 1.0}
+        )
+        second = controller.compute_command(
+            {"forward_m": 1.0, "right_m": 0.0, "up_m": 0.0, "yaw_error_deg": 0.0, "timestamp": 2.0}
+        )
+
+        self.assertAlmostEqual(first["raw_motion_forward_m_s"], 0.2)
+        self.assertAlmostEqual(first["forward_m_s"], 0.1)
+        self.assertAlmostEqual(second["forward_m_s"], 0.15)
+        self.assertEqual(first["command_smoothing_alpha"], 0.5)
+
     def test_pre_dock_ready_requires_distance_centering_and_yaw_tolerance(self):
         controller = VisualTrackingController(
             desired_z_m=0.8,

@@ -1,11 +1,16 @@
 import math
 
-from modules.controller.motion_command import MotionCommand, camera_state_to_body_error
+from modules.controller.motion_command import MotionCommand, camera_state_to_body_error, motion_command_from_mapping
 from modules.controller.pid_controller import MultiAxisPidController
 
 
 def _clamp(value, low, high):
     return max(low, min(high, value))
+
+
+def _apply_deadband(value, deadband):
+    deadband = abs(float(deadband or 0.0))
+    return 0.0 if abs(float(value)) <= deadband else float(value)
 
 
 def _optional_float(value):
@@ -37,6 +42,9 @@ class VisualTrackingController:
         pre_dock_recent_observation_max_age_s=0.5,
         control_mode="p",
         pid_config=None,
+        control_deadband_m=0.0,
+        yaw_deadband_deg=0.0,
+        command_smoothing_alpha=1.0,
     ):
         self.desired_z_m = float(desired_z_m)
         self.max_v_m_s = float(max_v_m_s)
@@ -52,14 +60,32 @@ class VisualTrackingController:
         self.min_pre_dock_valid_frames = int(min_pre_dock_valid_frames)
         self.pre_dock_recent_observation_max_age_s = float(pre_dock_recent_observation_max_age_s)
         self.control_mode = str(control_mode or "p").lower()
+        self.control_deadband_m = abs(float(control_deadband_m or 0.0))
+        self.yaw_deadband_deg = abs(float(yaw_deadband_deg or 0.0))
+        self.command_smoothing_alpha = _clamp(float(command_smoothing_alpha), 0.0, 1.0)
         self.pid = MultiAxisPidController(self._build_pid_config(pid_config or {}))
+        self._last_smoothed_command = MotionCommand.neutral()
 
     def compute_command(self, state):
         state = self._body_error(state)
-        distance_error = float(state["forward_m"]) - self.desired_z_m
-        lateral_error = float(state["right_m"])
-        vertical_error = float(state.get("up_m", 0.0))
-        yaw_error_deg = float(state.get("yaw_error_deg", 0.0))
+        raw_distance_error = float(state["forward_m"]) - self.desired_z_m
+        raw_lateral_error = float(state["right_m"])
+        raw_vertical_error = float(state.get("up_m", 0.0))
+        raw_yaw_error_deg = float(state.get("yaw_error_deg", 0.0))
+        distance_error = _apply_deadband(raw_distance_error, self.control_deadband_m)
+        lateral_error = _apply_deadband(raw_lateral_error, self.control_deadband_m)
+        vertical_error = _apply_deadband(raw_vertical_error, self.control_deadband_m)
+        yaw_error_deg = _apply_deadband(raw_yaw_error_deg, self.yaw_deadband_deg)
+        error_diagnostics = {
+            "raw_forward_error_m": raw_distance_error,
+            "raw_right_error_m": raw_lateral_error,
+            "raw_up_error_m": raw_vertical_error,
+            "raw_yaw_error_deg": raw_yaw_error_deg,
+            "deadbanded_forward_error_m": distance_error,
+            "deadbanded_right_error_m": lateral_error,
+            "deadbanded_up_error_m": vertical_error,
+            "deadbanded_yaw_error_deg": yaw_error_deg,
+        }
 
         if self.control_mode == "pid":
             command = self._compute_pid_command(
@@ -81,10 +107,15 @@ class VisualTrackingController:
                 ),
             ).as_dict()
 
-        return command
+        command.update(error_diagnostics)
+        return self._finalize_command(command)
 
     def neutral_command(self):
         return MotionCommand.neutral().as_dict()
+
+    def reset(self):
+        self.pid.reset()
+        self._last_smoothed_command = MotionCommand.neutral()
 
     def is_pre_dock_ready(self, state):
         return self.pre_dock_diagnostics(state)["pre_dock_ready"]
@@ -216,6 +247,39 @@ class VisualTrackingController:
         ).as_dict()
         command.update(diagnostics)
         return command
+
+    def _finalize_command(self, command):
+        raw = motion_command_from_mapping(command)
+        smoothed = self._smooth_command(raw)
+        finalized = dict(command)
+        finalized.update(smoothed.as_dict())
+        finalized.update(
+            {
+                "raw_motion_forward_m_s": raw.forward_m_s,
+                "raw_motion_right_m_s": raw.right_m_s,
+                "raw_motion_up_m_s": raw.up_m_s,
+                "raw_motion_yaw_rate_rad_s": raw.yaw_rate_rad_s,
+                "control_deadband_m": self.control_deadband_m,
+                "yaw_deadband_deg": self.yaw_deadband_deg,
+                "command_smoothing_alpha": self.command_smoothing_alpha,
+            }
+        )
+        return finalized
+
+    def _smooth_command(self, raw):
+        alpha = self.command_smoothing_alpha
+        if alpha >= 1.0:
+            self._last_smoothed_command = raw
+            return raw
+        previous = self._last_smoothed_command
+        smoothed = MotionCommand(
+            forward_m_s=previous.forward_m_s * (1.0 - alpha) + raw.forward_m_s * alpha,
+            right_m_s=previous.right_m_s * (1.0 - alpha) + raw.right_m_s * alpha,
+            up_m_s=previous.up_m_s * (1.0 - alpha) + raw.up_m_s * alpha,
+            yaw_rate_rad_s=previous.yaw_rate_rad_s * (1.0 - alpha) + raw.yaw_rate_rad_s * alpha,
+        )
+        self._last_smoothed_command = smoothed
+        return smoothed
 
     def _build_pid_config(self, pid_config):
         return {

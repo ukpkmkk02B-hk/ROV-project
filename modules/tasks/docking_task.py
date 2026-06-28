@@ -68,12 +68,18 @@ class DockingTask:
             pre_dock_recent_observation_max_age_s=tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5),
             control_mode=tracking_config.get("control_mode", "p"),
             pid_config=tracking_config.get("pid", {}),
+            control_deadband_m=tracking_config.get("control_deadband_m", 0.0),
+            yaw_deadband_deg=tracking_config.get("yaw_deadband_deg", 0.0),
+            command_smoothing_alpha=tracking_config.get("command_smoothing_alpha", 1.0),
         )
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
         self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
         self.required_mode = tracking_config.get("required_mode", "GUIDED")
         self.rc_mapper = RcOverrideMapper(tracking_config.get("rc_override", {}))
         self.estimator = ConstantVelocityEKF(max_lost_frames=tracking_config.get("max_lost_frames", 10))
+        self.start_charging_after_dock = bool(tracking_config.get("start_charging_after_dock", False))
+        self.target_motion_mode = tracking_config.get("target_motion_mode", "stationary_child")
+        self.child_command_mode = tracking_config.get("child_command_mode", "disabled")
         
         # 任务变量
         self.start_time = time.time()
@@ -93,6 +99,7 @@ class DockingTask:
         self.pre_dock_recent_observation_max_age_s = float(
             tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5)
         )
+        self._clear_dock_completion_state()
         # 状态机所需属性
         self.name = "docking"
         self.status = "idle"
@@ -127,6 +134,8 @@ class DockingTask:
         self.start_time = time.time()
         self.search_start_time = None
         self.attempts = 0
+        self._clear_dock_completion_state()
+        self.tracking_ctrl.reset()
         self.status = "running"
         
         # 通知状态机任务已开始
@@ -137,6 +146,8 @@ class DockingTask:
         """停止对接任务"""
         print("[DockingTask] ⏹️ 停止对接任务")
         self.pixhawk.stop()
+        self._clear_dock_completion_state()
+        self.tracking_ctrl.reset()
         self.status = "stopped"
         
         # 通知状态机任务已停止
@@ -217,6 +228,13 @@ class DockingTask:
             "mavlink_cmd": self.last_mavlink_command,
             "rc_override": self.last_rc_override,
             "pre_dock_ready": self.pre_dock_ready,
+            "manual_dock_confirmed": self.manual_dock_confirmed,
+            "dock_completion_source": self.dock_completion_source,
+            "dock_completion_time": self.dock_completion_time,
+            "dock_completion_rejected_reason": self.dock_completion_rejected_reason,
+            "charging_start_requested": self.charging_start_requested,
+            "target_motion_mode": self.target_motion_mode,
+            "child_command_mode": self.child_command_mode,
             "enable_motion": self.enable_motion,
             "output_backend": self.output_backend,
             "attempts": self.attempts
@@ -232,6 +250,8 @@ class DockingTask:
         self.last_rc_override = {}
         self.valid_observation_count = 0
         self.last_valid_observation_time = None
+        self._clear_dock_completion_state()
+        self.tracking_ctrl.reset()
         self.estimator.reset()
         if self.attempts >= self.max_attempts:
             self.stage = self.STATE_FAILED
@@ -246,6 +266,7 @@ class DockingTask:
     def _handle_no_target(self):
         """处理目标丢失情况"""
         self.pre_dock_ready = False
+        self.tracking_ctrl.reset()
         self.last_command = self.tracking_ctrl.neutral_command()
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
@@ -289,6 +310,48 @@ class DockingTask:
             self.stage = self.STATE_PRE_ALIGN
         else:
             self.stage = self.STATE_TRACK
+
+    def confirm_manual_dock(self, source="surface"):
+        """Manually confirm docking after visual pre-alignment."""
+        reject_reason = self._manual_dock_reject_reason()
+        if reject_reason:
+            self.dock_completion_rejected_reason = reject_reason
+            return self._manual_dock_result(False, reject_reason, source)
+
+        self.manual_dock_confirmed = True
+        self.dock_completion_source = source
+        self.dock_completion_time = time.time()
+        self.dock_completion_rejected_reason = ""
+        self.stage = self.STATE_DOCKED
+        self._docked()
+        return self._manual_dock_result(True, "", source)
+
+    def _manual_dock_reject_reason(self):
+        if self.status != "running":
+            return "task_not_running"
+        if self.stage != self.STATE_PRE_ALIGN:
+            return "not_pre_aligned"
+        if not self.pre_dock_ready:
+            return "pre_dock_not_ready"
+        return ""
+
+    def _manual_dock_result(self, accepted, reason, source):
+        return {
+            "accepted": bool(accepted),
+            "reason": reason,
+            "source": source,
+            "stage": self.stage,
+            "status": self.status,
+            "manual_dock_confirmed": self.manual_dock_confirmed,
+            "dock_completion_time": self.dock_completion_time,
+        }
+
+    def _clear_dock_completion_state(self):
+        self.manual_dock_confirmed = False
+        self.dock_completion_source = ""
+        self.dock_completion_time = None
+        self.dock_completion_rejected_reason = ""
+        self.charging_start_requested = False
 
     def _annotate_state(self, state, has_valid_observation, now=None):
         state = dict(state or {})
@@ -361,12 +424,19 @@ class DockingTask:
 
     def _docked(self):
         """对接完成状态"""
+        self.last_command = self.tracking_ctrl.neutral_command()
+        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
+        if self.enable_motion:
+            self._send_motion_command(self.last_command)
         self.pixhawk.stop()
         self.status = "completed"
         # 通知状态机任务完成
         self.state_machine.notify_task_completed(self.name)
         # 可以启动充电任务
-        self.state_machine.start_task("charging")
+        self.charging_start_requested = bool(self.start_charging_after_dock)
+        if self.charging_start_requested:
+            self.state_machine.start_task("charging")
 
     def _handle_failure(self):
         """处理任务失败"""

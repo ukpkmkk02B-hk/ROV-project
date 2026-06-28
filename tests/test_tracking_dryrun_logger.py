@@ -53,6 +53,21 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
                     "right_m_s": -0.02,
                     "up_m_s": 0.03,
                     "yaw_rate_rad_s": -0.04,
+                    "raw_motion_forward_m_s": 0.02,
+                    "raw_motion_right_m_s": -0.04,
+                    "raw_motion_up_m_s": 0.06,
+                    "raw_motion_yaw_rate_rad_s": -0.08,
+                    "raw_forward_error_m": 0.021,
+                    "raw_right_error_m": -0.022,
+                    "raw_up_error_m": 0.023,
+                    "raw_yaw_error_deg": 2.4,
+                    "deadbanded_forward_error_m": 0.011,
+                    "deadbanded_right_error_m": -0.012,
+                    "deadbanded_up_error_m": 0.013,
+                    "deadbanded_yaw_error_deg": 1.4,
+                    "control_deadband_m": 0.01,
+                    "yaw_deadband_deg": 1.0,
+                    "command_smoothing_alpha": 0.6,
                     "vx": 0.01,
                     "vy": -0.02,
                     "vz": 0.03,
@@ -127,6 +142,21 @@ class TrackingDryRunLoggerTests(unittest.TestCase):
         self.assertEqual(row["motion_right_m_s"], "-0.02")
         self.assertEqual(row["motion_up_m_s"], "0.03")
         self.assertEqual(row["motion_yaw_rate_rad_s"], "-0.04")
+        self.assertEqual(row["raw_motion_forward_m_s"], "0.02")
+        self.assertEqual(row["raw_motion_right_m_s"], "-0.04")
+        self.assertEqual(row["raw_motion_up_m_s"], "0.06")
+        self.assertEqual(row["raw_motion_yaw_rate_rad_s"], "-0.08")
+        self.assertEqual(row["raw_forward_error_m"], "0.021")
+        self.assertEqual(row["raw_right_error_m"], "-0.022")
+        self.assertEqual(row["raw_up_error_m"], "0.023")
+        self.assertEqual(row["raw_yaw_error_deg"], "2.4")
+        self.assertEqual(row["deadbanded_forward_error_m"], "0.011")
+        self.assertEqual(row["deadbanded_right_error_m"], "-0.012")
+        self.assertEqual(row["deadbanded_up_error_m"], "0.013")
+        self.assertEqual(row["deadbanded_yaw_error_deg"], "1.4")
+        self.assertEqual(row["control_deadband_m"], "0.01")
+        self.assertEqual(row["yaw_deadband_deg"], "1.0")
+        self.assertEqual(row["command_smoothing_alpha"], "0.6")
         self.assertEqual(row["pid_forward_error"], "0.01")
         self.assertEqual(row["pid_forward_p"], "0.011")
         self.assertEqual(row["pid_forward_i"], "0.012")

@@ -114,7 +114,17 @@ def build_controller(config):
         pre_dock_recent_observation_max_age_s=config.get("pre_dock_recent_observation_max_age_s", 0.5),
         control_mode=config.get("control_mode", "p"),
         pid_config=config.get("pid", {}),
+        control_deadband_m=config.get("control_deadband_m", 0.0),
+        yaw_deadband_deg=config.get("yaw_deadband_deg", 0.0),
+        command_smoothing_alpha=config.get("command_smoothing_alpha", 1.0),
     )
+
+
+def compute_dryrun_command(controller, state):
+    if state.get("status") == "lost":
+        controller.reset()
+        return controller.neutral_command()
+    return controller.compute_command(state)
 
 
 DEFAULT_DRYRUN_RC_CHANNELS = {
@@ -263,7 +273,7 @@ def run_dryrun(
                 )
                 state.update(camera_state_to_body_error(state, vision_config))
 
-                command = controller.compute_command(state) if state.get("status") != "lost" else controller.neutral_command()
+                command = compute_dryrun_command(controller, state)
                 state.update(controller.pre_dock_diagnostics(state))
                 pre_dock_ready = controller.is_pre_dock_ready(state)
                 motion = motion_command_from_mapping(command)

@@ -6,12 +6,14 @@ import numpy as np
 
 from tools.run_aruco_tracking_dryrun import (
     build_rc_dryrun_mapper,
+    compute_dryrun_command,
     format_control_direction,
     main,
     resolve_log_path,
     show_preview_frame,
     update_pre_dock_observation_state,
 )
+from modules.controller.visual_tracking_controller import VisualTrackingController
 
 
 class ArucoTrackingDryRunScriptTests(unittest.TestCase):
@@ -258,6 +260,35 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertEqual(last_counter, 13)
         self.assertFalse(recent)
+
+    def test_lost_state_resets_controller_smoothing_before_reacquire(self):
+        controller = VisualTrackingController(
+            desired_z_m=0.8,
+            control_mode="pid",
+            command_smoothing_alpha=0.5,
+            pid_config={
+                "forward": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "right": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "up": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+                "yaw": {"kp": 1.0, "ki": 0.0, "kd": 0.0, "output_limit": 0.4},
+            },
+        )
+        state = {
+            "status": "tracking",
+            "forward_m": 1.0,
+            "right_m": 0.0,
+            "up_m": 0.0,
+            "yaw_error_deg": 0.0,
+            "timestamp": 1.0,
+        }
+
+        first = compute_dryrun_command(controller, state)
+        lost = compute_dryrun_command(controller, {"status": "lost"})
+        reacquired = compute_dryrun_command(controller, {**state, "timestamp": 2.0})
+
+        self.assertAlmostEqual(first["forward_m_s"], 0.1)
+        self.assertEqual(lost["forward_m_s"], 0.0)
+        self.assertAlmostEqual(reacquired["forward_m_s"], 0.1)
 
 
 if __name__ == "__main__":
