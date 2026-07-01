@@ -38,6 +38,17 @@ class PixhawkComm(CommunicationBase):
         self.armed_ack = False  # 初始化
         self.servo_output = {}
 
+        self.last_heartbeat_time = time.time()
+        self.PRESSURE_SEND_INTERVAL = 0.1
+        self.time_offset = 0
+        self.last_system_time = 0
+        self.last_local_receive_time = 0
+        self.current_mode = None
+        self.armed_state = False
+        self.armed_ack = False
+        self.servo_output = {}
+        self.velocity_cache = {}
+
     def _load_config(self, config):
         """加载配置文件"""
         if isinstance(config, str):
@@ -216,6 +227,14 @@ class PixhawkComm(CommunicationBase):
     def get_servo_outputs(self):
         """获取最新PWM输出"""
         return self.servo_output.copy()
+
+    def get_velocity(self):
+        """Return latest LOCAL_POSITION_NED velocity cache if available."""
+        return self.velocity_cache.copy()
+
+    def get_flight_mode(self):
+        """Return latest flight mode reported by HEARTBEAT."""
+        return self.current_mode
 
     def _send_queued_commands(self):
         """发送队列中的命令"""

@@ -20,6 +20,12 @@ from modules.perception.marker_tracker import ArucoMarkerTracker
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
 from modules.tasks.docking_confirmation import confirm_current_docking_task
+from modules.tasks.docking_runtime import (
+    handle_docking_runtime_command,
+    neutralize_rc_state,
+    should_send_manual_rc_state,
+    stop_docking_safely,
+)
 from modules.tasks.charging_task import ChargingTask
 from modules.tasks.fish_control_task import FishControlTask
 import yaml
@@ -162,6 +168,9 @@ def main():
         'ch8': 1500
     }
 
+    def reset_manual_rc_state():
+        neutralize_rc_state(rc_state)
+
     def handle_surface_command(raw_msg):
         # global rc_state
         if not raw_msg or raw_msg.strip() == "":
@@ -182,10 +191,13 @@ def main():
         # ========== ROV 控制 ==========
         if "rov" in data:
             rov_cmd = data["rov"]
+            runtime_update = handle_docking_runtime_command(scheduler, rov_cmd, source="surface")
             print(f"[MAIN] 📥 ROV 指令: {rov_cmd}")
             
             # === 模式切换 ===
-            if rov_cmd in ["MANUAL", "STABILIZE", "ALT_HOLD"]:
+            if runtime_update.get("handled"):
+                status_update.update({k: v for k, v in runtime_update.items() if k != "handled"})
+            elif rov_cmd in ["MANUAL", "STABILIZE", "ALT_HOLD"]:
                 success = pixhawk.set_mode(rov_cmd)
                 time.sleep(2)
                 status_update["mode_change"] = {"target_mode": rov_cmd, "success": success}
@@ -232,10 +244,12 @@ def main():
                 rc_state['ch5'] = 1500
                 rc_state['ch6'] = 1500
             elif rov_cmd == "stop":
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1500
+                reset_manual_rc_state()
+                docking_stop = stop_docking_safely(scheduler, pixhawk, rc_state)
+                if docking_stop.get("accepted"):
+                    status_update["docking_stop"] = docking_stop
+                else:
+                    pixhawk.send_rc_override(rc_state)
             
             elif rov_cmd == "docking start":
                 scheduler.start_task("docking")
@@ -244,16 +258,13 @@ def main():
                 status_update["docking_confirm"] = confirm_current_docking_task(scheduler, source="surface")
 
             elif rov_cmd == "docking stop":
-                scheduler.stop_current_task()
-                scheduler.stop()
+                reset_manual_rc_state()
+                status_update["docking_stop"] = stop_docking_safely(scheduler, pixhawk, rc_state)
                 print(f"[MAIN]              ⚠️ TINGZHI DUIJIE")
             
             elif msg == "reset":
                 scheduler.reset_error_state()
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1500
+                reset_manual_rc_state()
             else:
                 print(f"[MAIN] ⚠️ 未知 ROV 指令: {rov_cmd}")
            
@@ -291,7 +302,8 @@ def main():
              current_task = status['current_task']['name'] if status['current_task'] else None
              
             #  pixhawk.send_velocity_command({"vx": 0, "vy": 0.5, "vz": 0, "yaw_rate": 0})
-             pixhawk.send_rc_override(rc_state)
+             if should_send_manual_rc_state(scheduler):
+                pixhawk.send_rc_override(rc_state)
              if system_state == "system_idle":
                 print("[MAIN] 💡 系统空闲，等待上位机任务指令")
              elif system_state == "system_error":

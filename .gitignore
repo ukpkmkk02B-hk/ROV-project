@@ -4,6 +4,7 @@ devel/
 install/
 log/
 tmp/
+external/
 
 __pycache__/
 *.py[cod]
@@ -21,4 +22,3 @@ __pycache__/
 *.tlog.raw
 
 *.pdf
-

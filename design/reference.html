@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ROV Surface Console Reference</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1120;
+        --surface: #111827;
+        --surface-2: #1a2535;
+        --border: #1e3a5f;
+        --text: #e8f0fe;
+        --muted: #8ba3c7;
+        --amber: #ffb800;
+        --cyan: #00d4ff;
+        --green: #26de81;
+        --red: #ff4757;
+        --orange: #ff9f43;
+        --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+        --sans: "Inter", "Microsoft YaHei", Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(0, 212, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 212, 255, 0.04) 1px, transparent 1px),
+          var(--bg);
+        background-size: 28px 28px;
+        font-family: var(--sans);
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(10, 17, 32, 0.94);
+      }
+      p, h1, h2 { margin: 0; }
+      .kicker {
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+      }
+      h1 { font-size: 22px; }
+      h2 { font-size: 16px; }
+      .mono {
+        font-family: var(--mono);
+      }
+      main {
+        display: grid;
+        gap: 16px;
+        padding: 16px;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        gap: 12px;
+      }
+      .card, .panel {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: rgba(17, 24, 39, 0.94);
+      }
+      .card {
+        display: grid;
+        gap: 8px;
+        padding: 14px;
+        border-left: 3px solid var(--cyan);
+      }
+      .card span {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+      }
+      .card strong {
+        color: var(--amber);
+        font-family: var(--mono);
+        font-size: 17px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 16px;
+      }
+      .stack {
+        display: grid;
+        align-content: start;
+        gap: 16px;
+      }
+      .panel header {
+        padding: 14px;
+        border-bottom: 1px solid #162035;
+        background: var(--surface-2);
+      }
+      .body {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+      }
+      .buttons {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(110px, 1fr));
+        gap: 8px;
+      }
+      button {
+        min-height: 42px;
+        border: 1px solid #25517d;
+        border-radius: 4px;
+        background: #17365c;
+        color: var(--text);
+        font: inherit;
+        font-weight: 900;
+      }
+      button small {
+        display: block;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+      button.stop {
+        border-color: var(--red);
+        background: var(--red);
+        color: white;
+      }
+      button.danger {
+        border-color: var(--red);
+        background: #5b1b27;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 9px 12px;
+        margin: 0;
+      }
+      dt {
+        color: var(--muted);
+        font-weight: 800;
+      }
+      dd {
+        margin: 0;
+        color: var(--text);
+        font-family: var(--mono);
+      }
+      .ok { color: var(--green); }
+      .warn { color: var(--orange); }
+      @media (max-width: 960px) {
+        .summary, .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="kicker">母鱼 ROV / ARV</p>
+        <h1>视觉跟踪与协同对接控制台</h1>
+        <p class="mono warn">未连接 / Disconnected</p>
+      </div>
+      <button>刷新 <small>Refresh</small></button>
+    </header>
+    <main>
+      <section class="summary">
+        <article class="card"><span>系统 / System</span><strong>system_idle</strong></article>
+        <article class="card"><span>任务 / Task</span><strong>docking</strong></article>
+        <article class="card"><span>运动 / Motion</span><strong class="ok">false</strong></article>
+        <article class="card"><span>预对接 / Pre-dock</span><strong class="ok">ready</strong></article>
+      </section>
+      <section class="grid">
+        <div class="stack">
+          <section class="panel">
+            <header><p class="kicker">状态 / Status</p><h2>任务诊断</h2></header>
+            <div class="body">
+              <dl>
+                <dt>阶段 / Stage</dt><dd>pre_align</dd>
+                <dt>垂向 / Vertical</dt><dd>hold_captured_ch3</dd>
+                <dt>捕获 / Captured</dt><dd class="ok">1500 PWM</dd>
+              </dl>
+            </div>
+          </section>
+          <section class="panel">
+            <header><p class="kicker">安全 / Safety</p><h2>运动安全</h2></header>
+            <div class="body buttons">
+              <button>STABILIZE</button><button>MANUAL</button><button class="danger">解锁 <small>Arm</small></button>
+              <button>上锁 <small>Disarm</small></button><button class="stop">STOP</button><button>ALT_HOLD</button>
+            </div>
+          </section>
+        </div>
+        <div class="stack">
+          <section class="panel">
+            <header><p class="kicker">视觉外环 / Visual Loop</p><h2>跟踪 Tracking</h2></header>
+            <div class="body buttons">
+              <button>视觉 PID <small>Visual PID</small></button>
+              <button>捕获 ch3 <small>Capture ch3</small></button>
+              <button>保持 ch3 <small>Hold ch3</small></button>
+            </div>
+          </section>
+          <section class="panel">
+            <header><p class="kicker">对接流程 / Docking Flow</p><h2>协同对接 Docking</h2></header>
+            <div class="body buttons">
+              <button>开始对接 <small>Start</small></button>
+              <button>人工确认 <small>Confirm</small></button>
+              <button class="stop">停止对接 <small>Stop</small></button>
+              <button>全轴控制 <small>Full</small></button>
+              <button>小修正 <small>Small</small></button>
+              <button>锁定水平 <small>Lock</small></button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -35,7 +35,15 @@ class StatusReporter:
     def _collect_status(self):
         status = {}
         if self.pixhawk:
-            status['rov_attitude'] = self.pixhawk.get_attitude()
+            attitude = _safe_call(self.pixhawk, "get_attitude", {})
+            status['rov_attitude'] = attitude
+            status['rov_telemetry'] = {
+                "flight_mode": _safe_call(self.pixhawk, "get_flight_mode", getattr(self.pixhawk, "current_mode", None)),
+                "armed": _safe_call(self.pixhawk, "is_armed", False),
+                "attitude": attitude,
+                "local_velocity": _safe_call(self.pixhawk, "get_velocity", {}),
+                "servo_outputs": _safe_call(self.pixhawk, "get_servo_outputs", {}),
+            }
         if self.fish:
             fish_attitude = self.fish.get_status("fish_attitude", {})
             status['fish_status'] = fish_attitude
@@ -44,3 +52,13 @@ class StatusReporter:
         if self.scheduler:
             status['task_status'] = self.scheduler.get_system_status()
         return status
+
+
+def _safe_call(obj, method_name, default):
+    method = getattr(obj, method_name, None)
+    if method is None:
+        return default
+    try:
+        return method()
+    except Exception:
+        return default

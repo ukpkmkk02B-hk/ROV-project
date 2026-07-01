@@ -67,11 +67,16 @@ vision_tracking:
     yaw_sign: 1.0
     yaw_offset_deg: -90.0
     yaw_normalize: true
-  desired_z_m: 0.8
+  desired_z_m: 0.5
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 10.0
   target_motion_mode: "stationary_child"
   child_command_mode: "disabled"
+  tracking_vertical_mode: "visual_pid"
+  pre_align_axis_mode: "small_correction"
+  pre_align_correction_scale: 0.25
+  pre_align_max_v_m_s: 0.05
+  pre_align_max_yaw_rate_deg_s: 3.0
   control_mode: "pid"
   control_deadband_m: 0.01
   yaw_deadband_deg: 1.0

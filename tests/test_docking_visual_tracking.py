@@ -426,6 +426,191 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertTrue(task.get_status()["charging_start_requested"])
         self.assertIn(("start_task", "charging"), state_machine.events)
 
+    def test_tracking_capture_ch3_uses_latest_final_rc_override(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": True,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+        state = {
+            "forward_m": 0.8,
+            "right_m": 0.0,
+            "up_m": 0.1,
+            "yaw_error_deg": 0.0,
+            "status": "tracking",
+            "timestamp": 10.0,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 3,
+        }
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_TRACK
+            task._track(state)
+            result = task.capture_tracking_ch3(source="unit_test")
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["captured_hold_ch3_pwm"], task.last_rc_override["ch3"])
+        self.assertTrue(task.get_status()["captured_hold_ch3_available"])
+
+    def test_hold_captured_ch3_keeps_ch3_fixed_and_removes_vertical_pid_output(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": True,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+        state = {
+            "forward_m": 0.8,
+            "right_m": 0.0,
+            "up_m": 0.2,
+            "yaw_error_deg": 0.0,
+            "status": "tracking",
+            "timestamp": 10.0,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 3,
+        }
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_TRACK
+            task._track(state)
+            captured = task.capture_tracking_ch3(source="unit_test")["captured_hold_ch3_pwm"]
+            mode_result = task.set_tracking_vertical_mode("hold_captured_ch3")
+            task._track(dict(state, up_m=-0.2, timestamp=10.1))
+
+        self.assertTrue(mode_result["accepted"])
+        self.assertEqual(task.last_command["up_m_s"], 0.0)
+        self.assertEqual(task.last_command["vz"], 0.0)
+        self.assertEqual(task.last_rc_override["ch3"], captured)
+        self.assertEqual(task.get_status()["tracking_vertical_mode"], "hold_captured_ch3")
+
+    def test_tracking_capture_ch3_rejects_without_recent_final_rc(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": True,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_TRACK
+            task.filtered_state = {"has_recent_valid_observation": True, "latest_pose_age_s": 0.1}
+            task.last_rc_override = {}
+            result = task.capture_tracking_ch3(source="unit_test")
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "final_rc_unavailable")
+
+    def test_pre_align_lock_horizontal_keeps_vertical_only(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "pre_align_axis_mode": "lock_horizontal",
+            },
+        )
+        state = {
+            "forward_m": 1.0,
+            "right_m": 0.2,
+            "up_m": 0.1,
+            "yaw_error_deg": 10.0,
+            "status": "tracking",
+            "timestamp": 10.0,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 3,
+        }
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(state)
+
+        self.assertEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["right_m_s"], 0.0)
+        self.assertEqual(task.last_command["yaw_rate_rad_s"], 0.0)
+        self.assertNotEqual(task.last_command["up_m_s"], 0.0)
+
+    def test_stop_sends_neutral_rc_without_closing_pixhawk_connection(self):
+        module = import_docking_with_stubs()
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": True,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": True,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stop()
+
+        self.assertEqual(task.status, "stopped")
+        self.assertFalse(pixhawk.stopped)
+        self.assertEqual(pixhawk.commands[-1], {"rc": {f"ch{i}": 1500 for i in range(1, 9)}})
+
 
 if __name__ == "__main__":
     unittest.main()

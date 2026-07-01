@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ROV 上位机控制台 / Surface Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <p class="eyebrow">母鱼 ROV / ARV</p>
+        <h1>视觉跟踪与协同对接控制台</h1>
+        <p id="connectionLine" class="connection-line">未连接 / Disconnected</p>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="secondary" type="button">
+          <span>刷新</span>
+          <small>Refresh</small>
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="summary-grid" aria-label="关键状态 / Key status">
+        <article class="summary-card">
+          <span>系统 / System</span>
+          <strong id="systemState">-</strong>
+        </article>
+        <article class="summary-card">
+          <span>当前任务 / Task</span>
+          <strong id="currentTask">-</strong>
+        </article>
+        <article class="summary-card">
+          <span>运动输出 / Motion</span>
+          <strong id="motionEnabled">-</strong>
+        </article>
+        <article class="summary-card">
+          <span>预对接 / Pre-dock</span>
+          <strong id="preDockReady">-</strong>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <div class="column-stack">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">通信 / Link</p>
+                <h2>连接 ROV</h2>
+              </div>
+            </div>
+            <div class="form-grid compact">
+              <label>
+                <span>主机 / Host</span>
+                <input id="rovHost" type="text" value="127.0.0.1">
+              </label>
+              <label>
+                <span>端口 / Port</span>
+                <input id="rovPort" type="number" value="9002" min="1" max="65535">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="connectBtn" type="button">
+                <span>连接</span>
+                <small>Connect</small>
+              </button>
+              <button id="disconnectBtn" class="secondary" type="button">
+                <span>断开</span>
+                <small>Disconnect</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel status-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">状态 / Status</p>
+                <h2>任务诊断</h2>
+              </div>
+            </div>
+            <dl class="status-grid">
+              <dt>任务阶段 / Stage</dt><dd id="taskStage">-</dd>
+              <dt>垂向模式 / Vertical</dt><dd id="trackingVerticalMode">-</dd>
+              <dt>捕获 ch3 / Captured</dt><dd id="capturedCh3">-</dd>
+              <dt>预对接轴控 / Pre-align</dt><dd id="preAlignMode">-</dd>
+              <dt>最近消息 / Last msg</dt><dd id="lastMessage">-</dd>
+            </dl>
+          </section>
+
+          <section class="panel safety-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">安全 / Safety</p>
+                <h2>运动安全</h2>
+              </div>
+            </div>
+            <div class="button-grid">
+              <button data-rov="STABILIZE" type="button">STABILIZE</button>
+              <button data-rov="ALT_HOLD" type="button">ALT_HOLD</button>
+              <button data-rov="MANUAL" type="button">MANUAL</button>
+              <button data-rov="arm" class="danger" type="button">
+                <span>解锁</span>
+                <small>Arm</small>
+              </button>
+              <button data-rov="disarm" class="secondary" type="button">
+                <span>上锁</span>
+                <small>Disarm</small>
+              </button>
+              <button data-rov="stop" class="stop" type="button">STOP</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="column-stack main-column">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">视觉外环 / Visual loop</p>
+                <h2>跟踪 Tracking</h2>
+              </div>
+            </div>
+            <div class="button-grid">
+              <button data-rov="tracking mode visual_pid" type="button">
+                <span>视觉 PID</span>
+                <small>Visual PID</small>
+              </button>
+              <button data-rov="tracking capture ch3" type="button">
+                <span>捕获 ch3</span>
+                <small>Capture ch3</small>
+              </button>
+              <button data-rov="tracking mode hold_captured_ch3" type="button">
+                <span>保持 ch3</span>
+                <small>Hold ch3</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">对接流程 / Docking flow</p>
+                <h2>协同对接 Docking</h2>
+              </div>
+            </div>
+            <div class="button-grid docking-grid">
+              <button data-rov="docking start" type="button">
+                <span>开始对接</span>
+                <small>Start</small>
+              </button>
+              <button data-rov="docking confirm" type="button">
+                <span>人工确认</span>
+                <small>Confirm</small>
+              </button>
+              <button data-rov="docking stop" class="stop" type="button">
+                <span>停止对接</span>
+                <small>Stop</small>
+              </button>
+              <button data-rov="prealign mode full_control" type="button">
+                <span>全轴控制</span>
+                <small>Full Control</small>
+              </button>
+              <button data-rov="prealign mode small_correction" type="button">
+                <span>小修正</span>
+                <small>Small Correction</small>
+              </button>
+              <button data-rov="prealign mode lock_horizontal" type="button">
+                <span>锁定水平</span>
+                <small>Lock Horizontal</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">手动调试 / Manual trim</p>
+                <h2>手动运动 Manual Motion</h2>
+              </div>
+            </div>
+            <div class="motion-pad">
+              <button data-rov="up" type="button">
+                <span>上升</span>
+                <small>Up</small>
+              </button>
+              <button data-rov="forward" type="button">
+                <span>前进</span>
+                <small>Forward</small>
+              </button>
+              <button data-rov="down" type="button">
+                <span>下降</span>
+                <small>Down</small>
+              </button>
+              <button data-rov="left" type="button">
+                <span>左移</span>
+                <small>Left</small>
+              </button>
+              <button data-rov="stop" class="stop" type="button">STOP</button>
+              <button data-rov="right" type="button">
+                <span>右移</span>
+                <small>Right</small>
+              </button>
+              <span></span>
+              <button data-rov="backward" type="button">
+                <span>后退</span>
+                <small>Backward</small>
+              </button>
+              <span></span>
+            </div>
+          </section>
+
+          <section class="panel config-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="section-kicker">参数 / Parameters</p>
+                <h2>视觉跟踪配置 Vision Tracking Config</h2>
+              </div>
+            </div>
+            <form id="configForm" class="config-grid">
+              <label><span>目标距离 / desired_z_m</span><input name="desired_z_m" type="number" step="0.01"></label>
+              <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01"></label>
+              <label><span>最大偏航角速度 / max_yaw_rate_deg_s</span><input name="max_yaw_rate_deg_s" type="number" step="0.1"></label>
+              <label><span>位置死区 / control_deadband_m</span><input name="control_deadband_m" type="number" step="0.001"></label>
+              <label><span>偏航死区 / yaw_deadband_deg</span><input name="yaw_deadband_deg" type="number" step="0.1"></label>
+              <label><span>指令平滑 / command_smoothing_alpha</span><input name="command_smoothing_alpha" type="number" step="0.05"></label>
+              <label>
+                <span>垂向模式 / tracking_vertical_mode</span>
+                <select name="tracking_vertical_mode" data-value-type="string">
+                  <option value="visual_pid">visual_pid</option>
+                  <option value="hold_captured_ch3">hold_captured_ch3</option>
+                </select>
+              </label>
+              <label>
+                <span>预对接轴控 / pre_align_axis_mode</span>
+                <select name="pre_align_axis_mode" data-value-type="string">
+                  <option value="full_control">full_control</option>
+                  <option value="small_correction">small_correction</option>
+                  <option value="lock_horizontal">lock_horizontal</option>
+                </select>
+              </label>
+              <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
+              <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01"></label>
+              <label><span>预对接最大偏航 / pre_align_max_yaw_rate_deg_s</span><input name="pre_align_max_yaw_rate_deg_s" type="number" step="0.1"></label>
+              <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
+              <label><span>最近观测窗口 / recent_observation_max_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
+              <label><span>位置容差 / position_tolerance_m</span><input name="pre_dock_position_tolerance_m" type="number" step="0.005"></label>
+              <label><span>距离容差 / distance_tolerance_m</span><input name="pre_dock_distance_tolerance_m" type="number" step="0.005"></label>
+              <label><span>偏航容差 / yaw_tolerance_deg</span><input name="pre_dock_yaw_tolerance_deg" type="number" step="0.5"></label>
+              <label class="check-line"><input name="enable_motion" type="checkbox"> <span>允许运动输出 / enable_motion</span></label>
+            </form>
+            <label class="confirm-line">
+              <input id="confirmMotion" type="checkbox">
+              <span>我确认本次 enable_motion 修改是有意操作 / I confirm enable_motion changes are intentional</span>
+            </label>
+            <div class="button-row">
+              <button id="saveConfigBtn" type="button">
+                <span>保存配置</span>
+                <small>Save Config</small>
+              </button>
+              <button id="reloadConfigBtn" class="secondary" type="button">
+                <span>重新加载</span>
+                <small>Reload Config</small>
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <aside id="toast" class="toast" aria-live="polite" hidden></aside>
+    <script src="/app.js"></script>
+  </body>
+</html>
