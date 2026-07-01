@@ -5,6 +5,8 @@ import time
 
 
 MAX_BINARY_FRAME_BYTES = 64 * 1024 * 1024
+VIDEO_MAIN_TYPE = 0x01
+VIDEO_SUB_TYPE = 0x00
 
 
 def build_command_payload(rov=None, fish=None):
@@ -18,8 +20,9 @@ def build_command_payload(rov=None, fish=None):
     return {"type": "command", "data": data}
 
 
-def parse_prefixed_json_messages(buffer):
+def parse_surface_stream(buffer):
     messages = []
+    video_frames = []
     cursor = 0
     total = len(buffer)
     while cursor < total:
@@ -35,12 +38,16 @@ def parse_prefixed_json_messages(buffer):
             cursor = newline + 1
             continue
 
-        if cursor + 6 <= total:
+        if cursor + 6 <= total and buffer[cursor] != 0x02:
+            main_type = buffer[cursor]
+            sub_type = buffer[cursor + 1]
             frame_size = int.from_bytes(buffer[cursor + 2 : cursor + 6], "big")
             frame_end = cursor + 6 + frame_size
             if 0 <= frame_size <= MAX_BINARY_FRAME_BYTES:
                 if frame_end > total:
                     break
+                if main_type == VIDEO_MAIN_TYPE and sub_type == VIDEO_SUB_TYPE:
+                    video_frames.append(buffer[cursor + 6 : frame_end])
                 cursor = frame_end
                 continue
 
@@ -60,6 +67,11 @@ def parse_prefixed_json_messages(buffer):
     leftover = buffer[cursor:]
     if len(leftover) > 1024 * 1024:
         leftover = leftover[-4096:]
+    return messages, video_frames, leftover
+
+
+def parse_prefixed_json_messages(buffer):
+    messages, _video_frames, leftover = parse_surface_stream(buffer)
     return messages, leftover
 
 
@@ -75,6 +87,9 @@ class RovTcpClient:
         self._last_status = {}
         self._last_message_time = None
         self._last_error = ""
+        self._latest_frame = None
+        self._latest_frame_time = None
+        self._latest_frame_size = 0
 
     def connect(self, host, port, timeout=3.0):
         with self._lock:
@@ -125,7 +140,29 @@ class RovTcpClient:
                 "last_status": self._last_status,
                 "last_message_time": self._last_message_time,
                 "last_error": self._last_error,
+                "video": {
+                    "has_frame": self._latest_frame is not None,
+                    "latest_frame_time": self._latest_frame_time,
+                    "latest_frame_size": self._latest_frame_size,
+                },
             }
+
+    def latest_frame(self):
+        with self._lock:
+            return self._latest_frame
+
+    def handle_received_bytes(self, data):
+        now = time.time()
+        with self._lock:
+            messages, video_frames, self._buffer = parse_surface_stream(self._buffer + data)
+            for frame in video_frames:
+                self._latest_frame = bytes(frame)
+                self._latest_frame_time = now
+                self._latest_frame_size = len(frame)
+            for message in messages:
+                if message.get("type") == "status":
+                    self._last_status = message.get("data", {})
+                    self._last_message_time = now
 
     def _read_loop(self):
         while True:
@@ -139,12 +176,7 @@ class RovTcpClient:
                 if not chunk:
                     self._mark_disconnected("remote disconnected")
                     return
-                messages, self._buffer = parse_prefixed_json_messages(self._buffer + chunk)
-                for message in messages:
-                    if message.get("type") == "status":
-                        with self._lock:
-                            self._last_status = message.get("data", {})
-                            self._last_message_time = time.time()
+                self.handle_received_bytes(chunk)
             except socket.timeout:
                 continue
             except OSError as exc:

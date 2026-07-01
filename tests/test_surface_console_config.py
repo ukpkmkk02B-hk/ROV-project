@@ -11,6 +11,10 @@ SAMPLE_SETTINGS = """pixhawk_comm:
 
 vision_tracking:
   marker_type: "aruco"
+  min_marker_pixel_size_px: 25.0
+  max_reprojection_error_px: 5.0
+  camera_to_body:
+    yaw_offset_deg: -90.0
   desired_z_m: 0.8
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 10.0
@@ -28,6 +32,20 @@ vision_tracking:
   pre_dock_position_tolerance_m: 0.05
   pre_dock_distance_tolerance_m: 0.05
   pre_dock_yaw_tolerance_deg: 5.0
+  pid:
+    forward:
+      kp: 0.4
+    right:
+      kp: 0.4
+    up:
+      kp: 0.3
+    yaw:
+      kp: 0.5
+  rc_override:
+    enabled: true
+    neutral_pwm: 1500
+    pwm_per_m_s: 250
+    pwm_per_rad_s: 120
 
 surface_comm:
   port: 9002
@@ -47,6 +65,15 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["min_pre_dock_valid_frames"], 3)
         self.assertEqual(values["tracking_vertical_mode"], "visual_pid")
         self.assertEqual(values["pre_align_axis_mode"], "small_correction")
+        self.assertEqual(values["min_marker_pixel_size_px"], 25.0)
+        self.assertEqual(values["max_reprojection_error_px"], 5.0)
+        self.assertEqual(values["camera_to_body.yaw_offset_deg"], -90.0)
+        self.assertEqual(values["pid.forward.kp"], 0.4)
+        self.assertEqual(values["pid.right.kp"], 0.4)
+        self.assertEqual(values["pid.up.kp"], 0.3)
+        self.assertEqual(values["pid.yaw.kp"], 0.5)
+        self.assertEqual(values["rc_override.pwm_per_m_s"], 250)
+        self.assertEqual(values["rc_override.pwm_per_rad_s"], 120)
         self.assertNotIn("device", values)
         self.assertNotIn("marker_type", values)
 
@@ -62,6 +89,15 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                     "min_pre_dock_valid_frames": 4,
                     "tracking_vertical_mode": "hold_captured_ch3",
                     "pre_align_axis_mode": "lock_horizontal",
+                    "min_marker_pixel_size_px": 40.0,
+                    "max_reprojection_error_px": 3.5,
+                    "camera_to_body.yaw_offset_deg": -88.0,
+                    "pid.forward.kp": 0.21,
+                    "pid.right.kp": 0.22,
+                    "pid.up.kp": 0.23,
+                    "pid.yaw.kp": 0.24,
+                    "rc_override.pwm_per_m_s": 180.0,
+                    "rc_override.pwm_per_rad_s": 90.0,
                     "enable_motion": True,
                 },
                 confirm_motion=True,
@@ -72,12 +108,21 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(updated["min_pre_dock_valid_frames"], 4)
         self.assertEqual(updated["tracking_vertical_mode"], "hold_captured_ch3")
         self.assertEqual(updated["pre_align_axis_mode"], "lock_horizontal")
+        self.assertEqual(updated["camera_to_body.yaw_offset_deg"], -88.0)
+        self.assertEqual(updated["pid.forward.kp"], 0.21)
+        self.assertEqual(updated["rc_override.pwm_per_m_s"], 180.0)
         self.assertEqual(updated["enable_motion"], True)
         self.assertIn('device: "/dev/ttl_pixhawk"', text)
         self.assertIn("desired_z_m: 0.5", text)
         self.assertIn("min_pre_dock_valid_frames: 4", text)
         self.assertIn('tracking_vertical_mode: "hold_captured_ch3"', text)
         self.assertIn('pre_align_axis_mode: "lock_horizontal"', text)
+        self.assertIn("min_marker_pixel_size_px: 40.0", text)
+        self.assertIn("max_reprojection_error_px: 3.5", text)
+        self.assertIn("yaw_offset_deg: -88.0", text)
+        self.assertIn("kp: 0.21", text)
+        self.assertIn("pwm_per_m_s: 180.0", text)
+        self.assertIn("pwm_per_rad_s: 90.0", text)
         self.assertIn("enable_motion: true", text)
 
     def test_update_console_config_rejects_unknown_or_unsafe_enable_motion(self):
@@ -87,6 +132,8 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 update_console_config(path, {"device": "/dev/video0"})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"rc_override.channels.forward": "ch1"})
             with self.assertRaises(PermissionError):
                 update_console_config(path, {"enable_motion": True}, confirm_motion=False)
 

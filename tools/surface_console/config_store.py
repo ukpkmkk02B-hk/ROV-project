@@ -5,6 +5,9 @@ CONFIG_FIELDS = {
     "desired_z_m": {"type": float, "min": 0.05, "max": 5.0},
     "max_v_m_s": {"type": float, "min": 0.0, "max": 0.4},
     "max_yaw_rate_deg_s": {"type": float, "min": 0.0, "max": 25.0},
+    "min_marker_pixel_size_px": {"type": float, "min": 0.0, "max": 5000.0},
+    "max_reprojection_error_px": {"type": float, "min": 0.0, "max": 100.0},
+    "camera_to_body.yaw_offset_deg": {"type": float, "min": -180.0, "max": 180.0},
     "control_deadband_m": {"type": float, "min": 0.0, "max": 0.5},
     "yaw_deadband_deg": {"type": float, "min": 0.0, "max": 30.0},
     "command_smoothing_alpha": {"type": float, "min": 0.0, "max": 1.0},
@@ -13,6 +16,12 @@ CONFIG_FIELDS = {
     "pre_align_correction_scale": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_v_m_s": {"type": float, "min": 0.0, "max": 0.4},
     "pre_align_max_yaw_rate_deg_s": {"type": float, "min": 0.0, "max": 25.0},
+    "pid.forward.kp": {"type": float, "min": 0.0, "max": 5.0},
+    "pid.right.kp": {"type": float, "min": 0.0, "max": 5.0},
+    "pid.up.kp": {"type": float, "min": 0.0, "max": 5.0},
+    "pid.yaw.kp": {"type": float, "min": 0.0, "max": 5.0},
+    "rc_override.pwm_per_m_s": {"type": float, "min": 0.0, "max": 2000.0},
+    "rc_override.pwm_per_rad_s": {"type": float, "min": 0.0, "max": 2000.0},
     "enable_motion": {"type": bool},
     "min_pre_dock_valid_frames": {"type": int, "min": 1, "max": 100},
     "pre_dock_recent_observation_max_age_s": {"type": float, "min": 0.05, "max": 5.0},
@@ -50,15 +59,19 @@ def _read_vision_scalars(text):
     lines = text.splitlines()
     start, end = _vision_section_bounds(lines)
     values = {}
-    for line in lines[start + 1 : end]:
+    for idx in range(start + 1, end):
+        line = lines[idx]
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or ":" not in stripped:
             continue
-        if not line.startswith("  ") or line.startswith("    "):
+        if not line.startswith("  "):
             continue
         key, raw_value = stripped.split(":", 1)
-        if key in CONFIG_FIELDS:
-            values[key] = _parse_scalar(raw_value.strip())
+        if raw_value.strip() == "":
+            continue
+        path = _field_path_for_line(lines, start, idx, key)
+        if path in CONFIG_FIELDS:
+            values[path] = _parse_scalar(raw_value.strip())
     return values
 
 
@@ -72,12 +85,13 @@ def _update_vision_scalars(text, updates):
     for idx in range(start + 1, end):
         line = lines[idx]
         stripped = line.strip()
-        if not line.startswith("  ") or line.startswith("    ") or ":" not in stripped:
+        if not line.startswith("  ") or ":" not in stripped:
             continue
         key = stripped.split(":", 1)[0]
-        if key in remaining:
+        path = _field_path_for_line(lines, start, idx, key)
+        if path in remaining:
             prefix = line[: len(line) - len(line.lstrip())]
-            lines[idx] = f"{prefix}{key}: {_format_scalar(remaining.pop(key))}"
+            lines[idx] = f"{prefix}{key}: {_format_scalar(remaining.pop(path))}"
 
     if remaining:
         missing = ", ".join(sorted(remaining))
@@ -103,6 +117,25 @@ def _vision_section_bounds(lines):
             end = idx
             break
     return start, end
+
+
+def _field_path_for_line(lines, section_start, line_index, key):
+    line = lines[line_index]
+    indent = len(line) - len(line.lstrip(" "))
+    parents = []
+    current_indent = indent
+    for prev in reversed(lines[section_start + 1 : line_index]):
+        prev_stripped = prev.strip()
+        if not prev_stripped or prev_stripped.startswith("#") or ":" not in prev_stripped:
+            continue
+        prev_indent = len(prev) - len(prev.lstrip(" "))
+        if prev_indent < 2 or prev_indent >= current_indent:
+            continue
+        prev_key, prev_value = prev_stripped.split(":", 1)
+        if prev_value.strip() == "":
+            parents.append((prev_indent, prev_key))
+            current_indent = prev_indent
+    return ".".join([name for _indent, name in reversed(parents)] + [key])
 
 
 def _coerce_and_validate(field, value):

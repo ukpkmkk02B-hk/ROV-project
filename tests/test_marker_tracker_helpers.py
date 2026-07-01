@@ -190,6 +190,38 @@ class MarkerTrackerHelperTests(unittest.TestCase):
         self.assertIsNot(first, frame)
         self.assertEqual(second[0, 0, 0], 0)
 
+    def test_surface_preview_frame_prefers_annotated_frame(self):
+        tracker = ArucoMarkerTracker.__new__(ArucoMarkerTracker)
+        tracker._frame_lock = threading.Lock()
+        tracker._latest_annotated_frame = None
+        tracker.thread = None
+        tracker.cap = None
+        tracker.logger = logging.getLogger(__name__)
+
+        raw = np.zeros((2, 2, 3), dtype=np.uint8)
+        annotated = np.full((2, 2, 3), 77, dtype=np.uint8)
+        tracker._set_annotated_frame(annotated)
+
+        selected = tracker._surface_preview_frame(raw)
+
+        np.testing.assert_array_equal(selected, annotated)
+        self.assertIsNot(selected, annotated)
+
+    def test_surface_preview_frame_falls_back_to_raw_frame_without_annotation(self):
+        tracker = ArucoMarkerTracker.__new__(ArucoMarkerTracker)
+        tracker._frame_lock = threading.Lock()
+        tracker._latest_annotated_frame = None
+        tracker.thread = None
+        tracker.cap = None
+        tracker.logger = logging.getLogger(__name__)
+
+        raw = np.full((2, 2, 3), 11, dtype=np.uint8)
+
+        selected = tracker._surface_preview_frame(raw)
+
+        np.testing.assert_array_equal(selected, raw)
+        self.assertIsNot(selected, raw)
+
 
 if __name__ == "__main__":
     unittest.main()

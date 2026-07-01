@@ -1,5 +1,7 @@
 const state = {
   config: {},
+  hasVideo: false,
+  lastFrameTime: null,
 };
 
 const LABELS = {
@@ -24,6 +26,9 @@ const LABELS = {
     completed: "已完成 / completed",
     stopped: "已停止 / stopped",
     idle: "空闲 / idle",
+    lost: "目标丢失 / lost",
+    predicted: "预测 / predicted",
+    tracking: "跟踪 / tracking",
   },
   verticalMode: {
     visual_pid: "视觉 PID / visual_pid",
@@ -85,6 +90,40 @@ function formatBool(value) {
   return "-";
 }
 
+function formatNumber(value, digits = 3, unit = "") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number.toFixed(digits)}${unit}`;
+}
+
+function formatCompactObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "-";
+  const entries = Object.entries(value).filter(([, item]) => item !== "" && item !== undefined && item !== null);
+  if (entries.length === 0) return "-";
+  return entries
+    .slice(0, 8)
+    .map(([key, item]) => `${key}:${formatObjectValue(item)}`)
+    .join("  ");
+}
+
+function formatObjectValue(value) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
+}
+
+function setText(id, value) {
+  const element = $(id);
+  if (element) element.textContent = value;
+}
+
+function setClass(id, className) {
+  const element = $(id);
+  if (element) element.className = className || "";
+}
+
 function taskStatusFrom(payload) {
   const taskStatus = payload?.rov?.last_status?.task_status || {};
   const currentTask = taskStatus.current_task || {};
@@ -96,37 +135,90 @@ function renderStatus(payload) {
   const {taskStatus, currentTask} = taskStatusFrom(payload);
   const config = payload.config || {};
   state.config = config;
+  renderConnection(payload, rov);
+  renderSummary(taskStatus, currentTask, config);
+  renderTaskStatus(currentTask, config, rov);
+  renderVideoStatus(rov.video || {});
+  renderPose(currentTask);
+  fillConfigForm(config);
+}
 
+function renderConnection(payload, rov) {
   $("rovHost").value = rov.host || payload.defaults?.rov_host || $("rovHost").value;
   $("rovPort").value = rov.port || payload.defaults?.rov_port || $("rovPort").value;
   $("connectionLine").textContent = rov.connected
     ? `已连接 / Connected: ${rov.host}:${rov.port}`
     : `未连接 / Disconnected: ${payload.defaults?.rov_host || "127.0.0.1"}:${payload.defaults?.rov_port || 9002}`;
   $("connectionLine").className = rov.connected ? "connection-line ok" : "connection-line bad";
+}
 
-  $("systemState").textContent = formatEnum(taskStatus.system_state, LABELS.system);
-  $("currentTask").textContent = formatEnum(currentTask.name, LABELS.task);
-  $("taskStage").textContent = formatEnum(currentTask.stage || currentTask.status, LABELS.stage);
+function renderSummary(taskStatus, currentTask, config) {
+  setText("systemState", formatEnum(taskStatus.system_state, LABELS.system));
+  setText("currentTask", formatEnum(currentTask.name, LABELS.task));
+  setText("taskStage", formatEnum(currentTask.stage || currentTask.status, LABELS.stage));
 
-  $("preDockReady").textContent = formatBool(currentTask.pre_dock_ready);
-  $("preDockReady").className = currentTask.pre_dock_ready === true ? "ok" : "";
+  setText("preDockReady", formatBool(currentTask.pre_dock_ready));
+  setClass("preDockReady", currentTask.pre_dock_ready === true ? "ok" : "");
 
-  $("motionEnabled").textContent = formatBool(config.enable_motion);
-  $("motionEnabled").className = config.enable_motion === true ? "bad" : "ok";
+  setText("motionEnabled", formatBool(config.enable_motion));
+  setClass("motionEnabled", config.enable_motion === true ? "bad" : "ok");
+}
 
-  $("trackingVerticalMode").textContent = formatEnum(
-    currentTask.tracking_vertical_mode || config.tracking_vertical_mode,
-    LABELS.verticalMode,
+function renderTaskStatus(currentTask, config, rov) {
+  setText(
+    "trackingVerticalMode",
+    formatEnum(currentTask.tracking_vertical_mode || config.tracking_vertical_mode, LABELS.verticalMode),
   );
-  $("preAlignMode").textContent = formatEnum(
-    currentTask.pre_align_axis_mode || config.pre_align_axis_mode,
-    LABELS.preAlignMode,
+  setText(
+    "preAlignMode",
+    formatEnum(currentTask.pre_align_axis_mode || config.pre_align_axis_mode, LABELS.preAlignMode),
   );
-  $("capturedCh3").textContent = formatCapturedCh3(currentTask);
-  $("capturedCh3").className = currentTask.captured_hold_ch3_available === true ? "ok" : "";
-  $("lastMessage").textContent = formatTime(rov.last_message_time);
+  setText("capturedCh3", formatCapturedCh3(currentTask));
+  setClass("capturedCh3", currentTask.captured_hold_ch3_available === true ? "ok" : "");
+  setText("lastMessage", formatTime(rov.last_message_time));
+}
 
-  fillConfigForm(config);
+function renderVideoStatus(video) {
+  const hasFrame = video.has_frame === true;
+  state.hasVideo = hasFrame;
+  state.lastFrameTime = video.latest_frame_time || null;
+  setText("videoState", hasFrame ? "有画面 / Live" : "无画面 / No frame");
+  setClass("videoState", hasFrame ? "status-pill ok" : "status-pill");
+  setText("videoFrameTime", formatTime(video.latest_frame_time));
+  setText("videoFrameSize", video.latest_frame_size ? `${video.latest_frame_size} B` : "-");
+  if (!hasFrame) {
+    hideVideoFrame();
+  }
+}
+
+function renderPose(currentTask) {
+  const pose = currentTask.last_pose || {};
+  const filtered = currentTask.filtered_state || {};
+  const control = currentTask.control_cmd || {};
+  const rcOverride = currentTask.rc_override || {};
+
+  const detected = pose.detected;
+  const poseValid = pose.pose_valid !== undefined ? pose.pose_valid : detected;
+  setText("poseDetected", formatBool(detected));
+  setClass("poseDetected", detected === true ? "ok" : "");
+  setText("poseValid", formatBool(poseValid));
+  setClass("poseValid", poseValid === true ? "ok" : "bad");
+  setText("poseReject", pose.reject_reason || "-");
+  setText("poseReprojection", formatNumber(pose.reprojection_error_px, 3, " px"));
+  setText("poseX", formatNumber(pose.x, 3));
+  setText("poseY", formatNumber(pose.y, 3));
+  setText("poseZ", formatNumber(pose.z, 3));
+  setText("poseYaw", formatNumber(pose.yaw, 2));
+
+  setText("bodyForward", formatNumber(filtered.forward_m, 3));
+  setText("bodyRight", formatNumber(filtered.right_m, 3));
+  setText("bodyUp", formatNumber(filtered.up_m, 3));
+  setText("yawError", formatNumber(filtered.yaw_error_deg, 2));
+  setText("filteredZ", formatNumber(filtered.z, 3));
+  setText("filteredYaw", formatNumber(filtered.yaw, 2));
+
+  setText("controlCommand", formatCompactObject(control));
+  setText("rcOverride", formatCompactObject(rcOverride));
 }
 
 function formatCapturedCh3(task) {
@@ -137,6 +229,7 @@ function formatCapturedCh3(task) {
 }
 
 function fillConfigForm(config) {
+  if (!configForm) return;
   for (const element of Array.from(configForm.elements)) {
     if (!element.name || !(element.name in config)) continue;
     if (element.type === "checkbox") {
@@ -154,6 +247,29 @@ async function refreshStatus() {
   } catch (error) {
     handleUiError(error);
   }
+}
+
+function refreshVideoFrame() {
+  if (!state.hasVideo) {
+    hideVideoFrame();
+    return;
+  }
+  const frame = $("videoFrame");
+  const placeholder = $("videoPlaceholder");
+  frame.onload = () => {
+    frame.hidden = false;
+    placeholder.hidden = true;
+  };
+  frame.onerror = hideVideoFrame;
+  frame.src = `/api/latest-frame.jpg?t=${Date.now()}`;
+}
+
+function hideVideoFrame() {
+  const frame = $("videoFrame");
+  const placeholder = $("videoPlaceholder");
+  if (!frame || !placeholder) return;
+  frame.hidden = true;
+  placeholder.hidden = false;
 }
 
 async function connectRov() {
@@ -206,7 +322,11 @@ async function saveConfig() {
   });
   state.config = payload.config;
   fillConfigForm(payload.config);
-  showToast(payload.restart_required ? "配置已保存，重启 main.py 后生效 / Config saved. Restart main.py to apply." : "配置已保存 / Config saved");
+  showToast(
+    payload.restart_required
+      ? "配置已保存，重启 main.py 后生效 / Config saved. Restart main.py to apply."
+      : "配置已保存 / Config saved",
+  );
   await refreshStatus();
 }
 
@@ -222,3 +342,4 @@ for (const button of rovButtons) {
 
 refreshStatus();
 setInterval(refreshStatus, 1000);
+setInterval(refreshVideoFrame, 500);

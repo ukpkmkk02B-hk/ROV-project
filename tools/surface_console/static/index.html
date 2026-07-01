@@ -10,7 +10,7 @@
     <header class="topbar">
       <div class="brand">
         <p class="eyebrow">母鱼 ROV / ARV</p>
-        <h1>视觉跟踪与协同对接控制台</h1>
+        <h1>视觉跟踪与协同对接控制台 / Surface Console</h1>
         <p id="connectionLine" class="connection-line">未连接 / Disconnected</p>
       </div>
       <div class="top-actions">
@@ -47,7 +47,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-kicker">通信 / Link</p>
-                <h2>连接 ROV</h2>
+                <h2>连接 ROV / Connect</h2>
               </div>
             </div>
             <div class="form-grid compact">
@@ -76,7 +76,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-kicker">状态 / Status</p>
-                <h2>任务诊断</h2>
+                <h2>任务诊断 / Task</h2>
               </div>
             </div>
             <dl class="status-grid">
@@ -92,7 +92,7 @@
             <div class="panel-heading">
               <div>
                 <p class="section-kicker">安全 / Safety</p>
-                <h2>运动安全</h2>
+                <h2>运动安全 / Motion Safety</h2>
               </div>
             </div>
             <div class="button-grid">
@@ -113,69 +113,127 @@
         </div>
 
         <div class="column-stack main-column">
-          <section class="panel">
+          <section class="panel visual-panel">
             <div class="panel-heading">
               <div>
-                <p class="section-kicker">视觉外环 / Visual loop</p>
-                <h2>跟踪 Tracking</h2>
+                <p class="section-kicker">视觉画面 / Vision Feed</p>
+                <h2>ArUco 跟踪调试 / Tracking Debug</h2>
               </div>
+              <span id="videoState" class="status-pill">无画面 / No frame</span>
             </div>
-            <div class="button-grid">
-              <button data-rov="tracking mode visual_pid" type="button">
-                <span>视觉 PID</span>
-                <small>Visual PID</small>
-              </button>
-              <button data-rov="tracking capture ch3" type="button">
-                <span>捕获 ch3</span>
-                <small>Capture ch3</small>
-              </button>
-              <button data-rov="tracking mode hold_captured_ch3" type="button">
-                <span>保持 ch3</span>
-                <small>Hold ch3</small>
-              </button>
+            <div class="visual-debug-grid">
+              <div class="video-stage">
+                <img id="videoFrame" class="video-frame" alt="ROV camera frame" hidden>
+                <div id="videoPlaceholder" class="video-placeholder">等待 Linux 主机视频帧 / Waiting for video frame</div>
+              </div>
+              <aside class="pose-panel">
+                <div class="pose-section">
+                  <h3>视频 / Video</h3>
+                  <dl class="telemetry-grid">
+                    <dt>帧时间 / Time</dt><dd id="videoFrameTime">-</dd>
+                    <dt>帧大小 / Size</dt><dd id="videoFrameSize">-</dd>
+                  </dl>
+                </div>
+                <div class="pose-section">
+                  <h3>位姿 / Pose</h3>
+                  <dl class="telemetry-grid">
+                    <dt>检测 / Detected</dt><dd id="poseDetected">-</dd>
+                    <dt>有效 / Valid</dt><dd id="poseValid">-</dd>
+                    <dt>拒绝原因 / Reject</dt><dd id="poseReject">-</dd>
+                    <dt>重投影 / Reproj</dt><dd id="poseReprojection">-</dd>
+                    <dt>x / m</dt><dd id="poseX">-</dd>
+                    <dt>y / m</dt><dd id="poseY">-</dd>
+                    <dt>z / m</dt><dd id="poseZ">-</dd>
+                    <dt>yaw / deg</dt><dd id="poseYaw">-</dd>
+                  </dl>
+                </div>
+                <div class="pose-section">
+                  <h3>机体系 / Body</h3>
+                  <dl class="telemetry-grid">
+                    <dt>forward / m</dt><dd id="bodyForward">-</dd>
+                    <dt>right / m</dt><dd id="bodyRight">-</dd>
+                    <dt>up / m</dt><dd id="bodyUp">-</dd>
+                    <dt>yaw error / deg</dt><dd id="yawError">-</dd>
+                    <dt>filtered z / m</dt><dd id="filteredZ">-</dd>
+                    <dt>filtered yaw / deg</dt><dd id="filteredYaw">-</dd>
+                  </dl>
+                </div>
+                <div class="pose-section">
+                  <h3>输出 / Output</h3>
+                  <dl class="telemetry-grid">
+                    <dt>控制 / Command</dt><dd id="controlCommand">-</dd>
+                    <dt>RC override</dt><dd id="rcOverride">-</dd>
+                  </dl>
+                </div>
+              </aside>
             </div>
           </section>
+
+          <div class="control-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="section-kicker">视觉外环 / Visual Loop</p>
+                  <h2>跟踪 / Tracking</h2>
+                </div>
+              </div>
+              <div class="button-grid">
+                <button data-rov="tracking mode visual_pid" type="button">
+                  <span>视觉 PID</span>
+                  <small>Visual PID</small>
+                </button>
+                <button data-rov="tracking capture ch3" type="button">
+                  <span>捕获 ch3</span>
+                  <small>Capture ch3</small>
+                </button>
+                <button data-rov="tracking mode hold_captured_ch3" type="button">
+                  <span>保持 ch3</span>
+                  <small>Hold ch3</small>
+                </button>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="section-kicker">对接流程 / Docking Flow</p>
+                  <h2>协同对接 / Docking</h2>
+                </div>
+              </div>
+              <div class="button-grid docking-grid">
+                <button data-rov="docking start" type="button">
+                  <span>开始对接</span>
+                  <small>Start</small>
+                </button>
+                <button data-rov="docking confirm" type="button">
+                  <span>人工确认</span>
+                  <small>Confirm</small>
+                </button>
+                <button data-rov="docking stop" class="stop" type="button">
+                  <span>停止对接</span>
+                  <small>Stop</small>
+                </button>
+                <button data-rov="prealign mode full_control" type="button">
+                  <span>全轴控制</span>
+                  <small>Full Control</small>
+                </button>
+                <button data-rov="prealign mode small_correction" type="button">
+                  <span>小修正</span>
+                  <small>Small Correction</small>
+                </button>
+                <button data-rov="prealign mode lock_horizontal" type="button">
+                  <span>锁定水平</span>
+                  <small>Lock Horizontal</small>
+                </button>
+              </div>
+            </section>
+          </div>
 
           <section class="panel">
             <div class="panel-heading">
               <div>
-                <p class="section-kicker">对接流程 / Docking flow</p>
-                <h2>协同对接 Docking</h2>
-              </div>
-            </div>
-            <div class="button-grid docking-grid">
-              <button data-rov="docking start" type="button">
-                <span>开始对接</span>
-                <small>Start</small>
-              </button>
-              <button data-rov="docking confirm" type="button">
-                <span>人工确认</span>
-                <small>Confirm</small>
-              </button>
-              <button data-rov="docking stop" class="stop" type="button">
-                <span>停止对接</span>
-                <small>Stop</small>
-              </button>
-              <button data-rov="prealign mode full_control" type="button">
-                <span>全轴控制</span>
-                <small>Full Control</small>
-              </button>
-              <button data-rov="prealign mode small_correction" type="button">
-                <span>小修正</span>
-                <small>Small Correction</small>
-              </button>
-              <button data-rov="prealign mode lock_horizontal" type="button">
-                <span>锁定水平</span>
-                <small>Lock Horizontal</small>
-              </button>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-heading">
-              <div>
-                <p class="section-kicker">手动调试 / Manual trim</p>
-                <h2>手动运动 Manual Motion</h2>
+                <p class="section-kicker">手动调试 / Manual Trim</p>
+                <h2>手动运动 / Manual Motion</h2>
               </div>
             </div>
             <div class="motion-pad">
@@ -213,44 +271,86 @@
             <div class="panel-heading">
               <div>
                 <p class="section-kicker">参数 / Parameters</p>
-                <h2>视觉跟踪配置 Vision Tracking Config</h2>
+                <h2>现场调参 / Field Tuning</h2>
               </div>
             </div>
-            <form id="configForm" class="config-grid">
-              <label><span>目标距离 / desired_z_m</span><input name="desired_z_m" type="number" step="0.01"></label>
-              <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01"></label>
-              <label><span>最大偏航角速度 / max_yaw_rate_deg_s</span><input name="max_yaw_rate_deg_s" type="number" step="0.1"></label>
-              <label><span>位置死区 / control_deadband_m</span><input name="control_deadband_m" type="number" step="0.001"></label>
-              <label><span>偏航死区 / yaw_deadband_deg</span><input name="yaw_deadband_deg" type="number" step="0.1"></label>
-              <label><span>指令平滑 / command_smoothing_alpha</span><input name="command_smoothing_alpha" type="number" step="0.05"></label>
-              <label>
-                <span>垂向模式 / tracking_vertical_mode</span>
-                <select name="tracking_vertical_mode" data-value-type="string">
-                  <option value="visual_pid">visual_pid</option>
-                  <option value="hold_captured_ch3">hold_captured_ch3</option>
-                </select>
-              </label>
-              <label>
-                <span>预对接轴控 / pre_align_axis_mode</span>
-                <select name="pre_align_axis_mode" data-value-type="string">
-                  <option value="full_control">full_control</option>
-                  <option value="small_correction">small_correction</option>
-                  <option value="lock_horizontal">lock_horizontal</option>
-                </select>
-              </label>
-              <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
-              <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01"></label>
-              <label><span>预对接最大偏航 / pre_align_max_yaw_rate_deg_s</span><input name="pre_align_max_yaw_rate_deg_s" type="number" step="0.1"></label>
-              <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
-              <label><span>最近观测窗口 / recent_observation_max_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
-              <label><span>位置容差 / position_tolerance_m</span><input name="pre_dock_position_tolerance_m" type="number" step="0.005"></label>
-              <label><span>距离容差 / distance_tolerance_m</span><input name="pre_dock_distance_tolerance_m" type="number" step="0.005"></label>
-              <label><span>偏航容差 / yaw_tolerance_deg</span><input name="pre_dock_yaw_tolerance_deg" type="number" step="0.5"></label>
-              <label class="check-line"><input name="enable_motion" type="checkbox"> <span>允许运动输出 / enable_motion</span></label>
+            <form id="configForm" class="config-form">
+              <fieldset class="config-group">
+                <legend>跟踪 / Tracking</legend>
+                <div class="config-grid">
+                  <label><span>目标距离 / desired_z_m</span><input name="desired_z_m" type="number" step="0.01"></label>
+                  <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01"></label>
+                  <label><span>最大偏航角速度 / max_yaw_rate_deg_s</span><input name="max_yaw_rate_deg_s" type="number" step="0.1"></label>
+                  <label><span>位置死区 / control_deadband_m</span><input name="control_deadband_m" type="number" step="0.001"></label>
+                  <label><span>偏航死区 / yaw_deadband_deg</span><input name="yaw_deadband_deg" type="number" step="0.1"></label>
+                  <label><span>指令平滑 / command_smoothing_alpha</span><input name="command_smoothing_alpha" type="number" step="0.05"></label>
+                  <label>
+                    <span>垂向模式 / tracking_vertical_mode</span>
+                    <select name="tracking_vertical_mode" data-value-type="string">
+                      <option value="visual_pid">visual_pid</option>
+                      <option value="hold_captured_ch3">hold_captured_ch3</option>
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="config-group">
+                <legend>预对接 / Pre-align</legend>
+                <div class="config-grid">
+                  <label>
+                    <span>轴控策略 / pre_align_axis_mode</span>
+                    <select name="pre_align_axis_mode" data-value-type="string">
+                      <option value="full_control">full_control</option>
+                      <option value="small_correction">small_correction</option>
+                      <option value="lock_horizontal">lock_horizontal</option>
+                    </select>
+                  </label>
+                  <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
+                  <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01"></label>
+                  <label><span>预对接最大偏航 / pre_align_max_yaw_rate_deg_s</span><input name="pre_align_max_yaw_rate_deg_s" type="number" step="0.1"></label>
+                  <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
+                  <label><span>最近观测窗口 / recent_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
+                  <label><span>位置容差 / position_tolerance_m</span><input name="pre_dock_position_tolerance_m" type="number" step="0.005"></label>
+                  <label><span>距离容差 / distance_tolerance_m</span><input name="pre_dock_distance_tolerance_m" type="number" step="0.005"></label>
+                  <label><span>偏航容差 / yaw_tolerance_deg</span><input name="pre_dock_yaw_tolerance_deg" type="number" step="0.5"></label>
+                </div>
+              </fieldset>
+
+              <fieldset class="config-group">
+                <legend>视觉质量 / Vision Quality</legend>
+                <div class="config-grid">
+                  <label><span>最小码边长 / min_marker_pixel_size_px</span><input name="min_marker_pixel_size_px" type="number" step="1"></label>
+                  <label><span>最大重投影误差 / max_reprojection_error_px</span><input name="max_reprojection_error_px" type="number" step="0.1"></label>
+                  <label><span>偏航补偿 / camera_to_body.yaw_offset_deg</span><input name="camera_to_body.yaw_offset_deg" type="number" step="0.5"></label>
+                </div>
+              </fieldset>
+
+              <fieldset class="config-group">
+                <legend>PID 调参 / PID Tuning</legend>
+                <div class="config-grid">
+                  <label><span>前后 P / pid.forward.kp</span><input name="pid.forward.kp" type="number" step="0.01"></label>
+                  <label><span>横向 P / pid.right.kp</span><input name="pid.right.kp" type="number" step="0.01"></label>
+                  <label><span>升沉 P / pid.up.kp</span><input name="pid.up.kp" type="number" step="0.01"></label>
+                  <label><span>偏航 P / pid.yaw.kp</span><input name="pid.yaw.kp" type="number" step="0.01"></label>
+                </div>
+              </fieldset>
+
+              <fieldset class="config-group">
+                <legend>RC 输出 / RC Output</legend>
+                <div class="config-grid">
+                  <label><span>速度到 PWM / rc_override.pwm_per_m_s</span><input name="rc_override.pwm_per_m_s" type="number" step="1"></label>
+                  <label><span>偏航到 PWM / rc_override.pwm_per_rad_s</span><input name="rc_override.pwm_per_rad_s" type="number" step="1"></label>
+                </div>
+              </fieldset>
+
+              <fieldset class="config-group">
+                <legend>运动安全 / Motion Safety</legend>
+                <label class="check-line"><input name="enable_motion" type="checkbox"> <span>允许运动输出 / enable_motion</span></label>
+              </fieldset>
             </form>
             <label class="confirm-line">
               <input id="confirmMotion" type="checkbox">
-              <span>我确认本次 enable_motion 修改是有意操作 / I confirm enable_motion changes are intentional</span>
+              <span>确认 enable_motion 修改 / Confirm enable_motion change</span>
             </label>
             <div class="button-row">
               <button id="saveConfigBtn" type="button">

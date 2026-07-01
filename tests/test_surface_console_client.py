@@ -1,7 +1,12 @@
 import json
 import unittest
 
-from tools.surface_console.rov_client import build_command_payload, parse_prefixed_json_messages
+from tools.surface_console.rov_client import (
+    RovTcpClient,
+    build_command_payload,
+    parse_prefixed_json_messages,
+    parse_surface_stream,
+)
 
 
 class SurfaceConsoleClientTests(unittest.TestCase):
@@ -53,6 +58,18 @@ class SurfaceConsoleClientTests(unittest.TestCase):
         self.assertEqual(leftover, b"")
         self.assertEqual(messages, [real_status])
 
+    def test_parse_surface_stream_returns_video_frames_and_json_messages(self):
+        frame = b"\xff\xd8jpeg-data\xff\xd9"
+        real_status = {"type": "status", "data": {"task_status": {"system_state": "system_idle"}}}
+        raw = b"\x01\x00" + len(frame).to_bytes(4, "big") + frame
+        raw += b"\x02" + json.dumps(real_status).encode("utf-8") + b"\n"
+
+        messages, video_frames, leftover = parse_surface_stream(raw)
+
+        self.assertEqual(leftover, b"")
+        self.assertEqual(messages, [real_status])
+        self.assertEqual(video_frames, [frame])
+
     def test_parse_prefixed_json_messages_keeps_partial_video_frame(self):
         payload = b"abcdef"
         partial_video_frame = b"\x01\x00" + len(payload).to_bytes(4, "big") + payload[:2]
@@ -61,6 +78,18 @@ class SurfaceConsoleClientTests(unittest.TestCase):
 
         self.assertEqual(messages, [])
         self.assertEqual(leftover, partial_video_frame)
+
+    def test_client_caches_latest_video_frame_metadata(self):
+        client = RovTcpClient()
+
+        client.handle_received_bytes(b"\x01\x00" + (4).to_bytes(4, "big") + b"jpeg")
+
+        frame = client.latest_frame()
+        snapshot = client.snapshot()
+        self.assertEqual(frame, b"jpeg")
+        self.assertTrue(snapshot["video"]["has_frame"])
+        self.assertEqual(snapshot["video"]["latest_frame_size"], 4)
+        self.assertIsInstance(snapshot["video"]["latest_frame_time"], float)
 
 
 if __name__ == "__main__":

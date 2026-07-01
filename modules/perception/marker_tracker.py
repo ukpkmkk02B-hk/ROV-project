@@ -320,7 +320,7 @@ class ArucoMarkerTracker(CommunicationBase):
         self.min_detections = int(config.get("min_detections", 3))
         self.max_lost = int(config.get("max_lost", 10))
         self.enable_undistort_preview = bool(config.get("enable_undistort_preview", False))
-        self.enable_preview_annotations = bool(config.get("enable_preview_annotations", False))
+        self.enable_preview_annotations = bool(config.get("enable_preview_annotations", True))
         self.detection_scale = normalize_detection_scale(config.get("detection_scale", 1.0))
         self.config = config
         self.actual_frame_size = None
@@ -422,7 +422,7 @@ class ArucoMarkerTracker(CommunicationBase):
 
             if self.surface:
                 try:
-                    preview = cv2.undistort(frame, self.camera_matrix, self.dist_coeffs) if self.enable_undistort_preview else frame
+                    preview = self._surface_preview_frame(frame)
                     success, jpg = cv2.imencode(".jpg", preview, encode_param)
                     if success:
                         self.surface.send_video_packet(jpg.tobytes(), 0x01, 0x00)
@@ -452,6 +452,14 @@ class ArucoMarkerTracker(CommunicationBase):
             if self._latest_annotated_frame is None:
                 return None
             return self._latest_annotated_frame.copy()
+
+    def _surface_preview_frame(self, frame):
+        annotated = self.get_annotated_frame()
+        if annotated is not None:
+            return annotated
+        if getattr(self, "enable_undistort_preview", False):
+            return cv2.undistort(frame, self.camera_matrix, self.dist_coeffs)
+        return frame.copy()
 
     def _draw_preview_text(self, frame, lines):
         for idx, line in enumerate(lines):

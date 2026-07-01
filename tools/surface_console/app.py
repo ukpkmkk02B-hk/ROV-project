@@ -13,7 +13,6 @@ if str(ROOT_DIR) not in sys.path:
 from tools.surface_console.config_store import read_console_config, update_console_config
 from tools.surface_console.rov_client import RovTcpClient, build_command_payload
 
-
 STATIC_DIR = Path(__file__).with_name("static")
 
 
@@ -37,6 +36,9 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
                 return
             if path == "/api/config":
                 self._json_response({"config": _safe_read_config()})
+                return
+            if path == "/api/latest-frame.jpg":
+                self._serve_latest_frame()
                 return
             self._serve_static(path)
 
@@ -91,6 +93,23 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+
+        def _serve_latest_frame(self):
+            frame = client.latest_frame()
+            if frame is None:
+                self.send_response(404)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                raw = b"no video frame"
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(frame)))
+            self.end_headers()
+            self.wfile.write(frame)
 
         def _json_response(self, data, status=200):
             raw = json.dumps(data).encode("utf-8")
