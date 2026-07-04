@@ -35,8 +35,11 @@ class DockingTask:
     MAX_SEARCH_TIME = 3.0  # 最大搜索时间（秒）
     SEARCH_SPEED = 0.2  # 搜索旋转速度 (rad/s)
     VALID_OUTPUT_BACKENDS = {"mavlink_velocity", "rc_override"}
+    MISSION_TRACKING = "tracking"
+    MISSION_DOCKING = "docking"
+    VALID_MISSIONS = {MISSION_TRACKING, MISSION_DOCKING}
 
-    def __init__(self, camera, pixhawk, state_machine, tracking_config=None):
+    def __init__(self, camera, pixhawk, state_machine, tracking_config=None, mission_mode=None):
         """
         初始化对接任务
         :param camera: camera.py 实例
@@ -48,6 +51,9 @@ class DockingTask:
         self.state_machine = state_machine  # 状态机引用
         tracking_config = tracking_config or {}
         self.tracking_config = tracking_config
+        self.mission_mode = mission_mode or tracking_config.get("mission_mode", self.MISSION_DOCKING)
+        if self.mission_mode not in self.VALID_MISSIONS:
+            raise ValueError(f"unsupported mission_mode: {self.mission_mode}")
         self.stage = self.STATE_SEARCH  # 初始状态为搜索
         
         # 控制器
@@ -99,6 +105,7 @@ class DockingTask:
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = {}
         self.pre_dock_ready = False
+        self.tracking_ready = False
         self.valid_observation_count = 0
         self.last_valid_observation_time = None
         self.pre_dock_recent_observation_max_age_s = float(
@@ -106,7 +113,7 @@ class DockingTask:
         )
         self._clear_dock_completion_state()
         # 状态机所需属性
-        self.name = "docking"
+        self.name = self.mission_mode
         self.status = "idle"
 
     def start(self):
@@ -139,6 +146,8 @@ class DockingTask:
         self.start_time = time.time()
         self.search_start_time = None
         self.attempts = 0
+        self.tracking_ready = False
+        self.pre_dock_ready = False
         self._clear_dock_completion_state()
         self.tracking_ctrl.reset()
         self.status = "running"
@@ -166,8 +175,9 @@ class DockingTask:
         if self.status != "running":
             return
 
-        # 检查任务超时（60秒未完成）
-        if time.time() - self.start_time > 60.0:
+        # Tracking is allowed to run continuously. The 60s timeout only applies
+        # after the operator explicitly engages docking/pre-align.
+        if self.mission_mode == self.MISSION_DOCKING and time.time() - self.start_time > 60.0:
             print("[DockingTask] ⏰ 任务超时，切换到失败状态")
             self.stage = self.STATE_FAILED
             self._handle_failure()
@@ -226,12 +236,14 @@ class DockingTask:
             "name": self.name,
             "stage": self.stage,
             "status": self.status,
+            "mission_mode": self.mission_mode,
             "timestamp": time.time(),
             "last_pose": self.last_pose,
             "filtered_state": self.filtered_state,
             "control_cmd": self.last_command,
             "mavlink_cmd": self.last_mavlink_command,
             "rc_override": self.last_rc_override,
+            "tracking_ready": self.tracking_ready,
             "pre_dock_ready": self.pre_dock_ready,
             "manual_dock_confirmed": self.manual_dock_confirmed,
             "dock_completion_source": self.dock_completion_source,
@@ -251,6 +263,7 @@ class DockingTask:
         print("[DockingTask] 🔄 重置对接任务")
         self.attempts += 1
         self.pre_dock_ready = False
+        self.tracking_ready = False
         self.last_command = self.tracking_ctrl.neutral_command()
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = {}
@@ -272,6 +285,7 @@ class DockingTask:
     def _handle_no_target(self):
         """处理目标丢失情况"""
         self.pre_dock_ready = False
+        self.tracking_ready = False
         self.tracking_ctrl.reset()
         self.last_command = self.tracking_ctrl.neutral_command()
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
@@ -303,7 +317,9 @@ class DockingTask:
         base_command = self.tracking_ctrl.compute_command(state)
         state.update(self.tracking_ctrl.pre_dock_diagnostics(state))
         self.filtered_state = state
-        self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(state)
+        ready = self.tracking_ctrl.is_pre_dock_ready(state)
+        self.tracking_ready = ready
+        self.pre_dock_ready = ready if self.mission_mode == self.MISSION_DOCKING else False
         self.last_command = self.axis_policy.apply(base_command, stage=self.stage)
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = self.axis_policy.apply_rc_override(
@@ -315,11 +331,41 @@ class DockingTask:
             self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
 
         print(f"[tracking] 📸 控制输出: {self.last_command}, dry_run={not self.enable_motion}")
-        if self.pre_dock_ready:
+        if self.mission_mode == self.MISSION_TRACKING:
+            self.stage = self.STATE_TRACK
+        elif self.pre_dock_ready:
             print("[DockingTask] ✅ 视觉预对准完成")
             self.stage = self.STATE_PRE_ALIGN
         else:
             self.stage = self.STATE_TRACK
+
+    def engage_docking(self, source="surface"):
+        if self.status != "running":
+            return self._docking_engage_result(False, "task_not_running", source)
+        if self.mission_mode != self.MISSION_TRACKING:
+            return self._docking_engage_result(False, "not_tracking", source)
+        if not self.filtered_state or not self.filtered_state.get("has_recent_valid_observation"):
+            return self._docking_engage_result(False, "recent_observation_expired", source)
+
+        self.mission_mode = self.MISSION_DOCKING
+        self.name = self.MISSION_DOCKING
+        self.stage = self.STATE_PRE_ALIGN
+        self.start_time = time.time()
+        self.search_start_time = None
+        self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(self.filtered_state)
+        self.tracking_ready = self.pre_dock_ready
+        return self._docking_engage_result(True, "", source)
+
+    def _docking_engage_result(self, accepted, reason, source):
+        return {
+            "accepted": bool(accepted),
+            "reason": reason,
+            "source": source,
+            "mission_mode": self.mission_mode,
+            "stage": self.stage,
+            "pre_dock_ready": self.pre_dock_ready,
+            "tracking_ready": self.tracking_ready,
+        }
 
     def confirm_manual_dock(self, source="surface"):
         """Manually confirm docking after visual pre-alignment."""
@@ -339,6 +385,8 @@ class DockingTask:
     def _manual_dock_reject_reason(self):
         if self.status != "running":
             return "task_not_running"
+        if self.mission_mode != self.MISSION_DOCKING:
+            return "not_docking"
         if self.stage != self.STATE_PRE_ALIGN:
             return "not_pre_aligned"
         if not self.pre_dock_ready:
@@ -494,7 +542,6 @@ class DockingTask:
         self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
         if self.enable_motion:
             self._send_motion_command(self.last_command)
-        self.pixhawk.stop()
         self.status = "completed"
         # 通知状态机任务完成
         self.state_machine.notify_task_completed(self.name)
@@ -505,9 +552,11 @@ class DockingTask:
 
     def _handle_failure(self):
         """处理任务失败"""
+        self.pre_dock_ready = False
+        self.tracking_ready = False
+        self._send_neutral_before_stop()
         self.status = "failed"
         # 通知状态机任务失败
-        self.pixhawk.stop()
         self.state_machine.notify_task_failed(self.name)
         
         # 可以选择返航或其他恢复动作

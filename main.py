@@ -96,11 +96,20 @@ def main():
     # === 3. 初始化任务调度系统 ===
     scheduler = TaskScheduler()
     scheduler.register_task(
+        "tracking",
+        DockingTask,
+        camera=camera,
+        pixhawk=pixhawk,
+        tracking_config=config.get("vision_tracking", {}),
+        mission_mode="tracking",
+    )
+    scheduler.register_task(
         "docking",
         DockingTask,
         camera=camera,
         pixhawk=pixhawk,
         tracking_config=config.get("vision_tracking", {}),
+        mission_mode="docking",
     )
     scheduler.register_task("charging", ChargingTask, charging_comm=charger, fish_comm=fish)
     scheduler.register_task("fish_control", FishControlTask, fish_comm=fish)
@@ -171,6 +180,14 @@ def main():
     def reset_manual_rc_state():
         neutralize_rc_state(rc_state)
 
+    def send_manual_rc_override_safely():
+        try:
+            pixhawk.send_rc_override(rc_state)
+            return True
+        except Exception as exc:
+            print(f"[MAIN] ⚠️ 手动RC发送失败: {exc}")
+            return False
+
     def handle_surface_command(raw_msg):
         # global rc_state
         if not raw_msg or raw_msg.strip() == "":
@@ -191,7 +208,13 @@ def main():
         # ========== ROV 控制 ==========
         if "rov" in data:
             rov_cmd = data["rov"]
-            runtime_update = handle_docking_runtime_command(scheduler, rov_cmd, source="surface")
+            runtime_update = handle_docking_runtime_command(
+                scheduler,
+                rov_cmd,
+                source="surface",
+                pixhawk=pixhawk,
+                rc_state=rc_state,
+            )
             print(f"[MAIN] 📥 ROV 指令: {rov_cmd}")
             
             # === 模式切换 ===
@@ -249,10 +272,13 @@ def main():
                 if docking_stop.get("accepted"):
                     status_update["docking_stop"] = docking_stop
                 else:
-                    pixhawk.send_rc_override(rc_state)
+                    send_manual_rc_override_safely()
             
             elif rov_cmd == "docking start":
-                scheduler.start_task("docking")
+                status_update["docking_start"] = {
+                    "accepted": False,
+                    "reason": "tracking_task_not_running",
+                }
 
             elif rov_cmd == "docking confirm":
                 status_update["docking_confirm"] = confirm_current_docking_task(scheduler, source="surface")
@@ -262,8 +288,10 @@ def main():
                 status_update["docking_stop"] = stop_docking_safely(scheduler, pixhawk, rc_state)
                 print(f"[MAIN]              ⚠️ TINGZHI DUIJIE")
             
-            elif msg == "reset":
-                scheduler.reset_error_state()
+            elif rov_cmd == "reset":
+                status_update["reset"] = {
+                    "accepted": scheduler.reset_error_state(),
+                }
                 reset_manual_rc_state()
             else:
                 print(f"[MAIN] ⚠️ 未知 ROV 指令: {rov_cmd}")
@@ -303,7 +331,7 @@ def main():
              
             #  pixhawk.send_velocity_command({"vx": 0, "vy": 0.5, "vz": 0, "yaw_rate": 0})
              if should_send_manual_rc_state(scheduler):
-                pixhawk.send_rc_override(rc_state)
+                send_manual_rc_override_safely()
              if system_state == "system_idle":
                 print("[MAIN] 💡 系统空闲，等待上位机任务指令")
              elif system_state == "system_error":

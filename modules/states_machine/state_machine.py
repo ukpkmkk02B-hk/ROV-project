@@ -130,6 +130,31 @@ class TaskScheduler:
         self.logger.info(f"任务已加入队列: {task_name}")
         return True
     
+    def has_pending_task(self, task_name: str) -> bool:
+        """Return True when a task is queued but not started yet."""
+        with self.task_queue.mutex:
+            return any(item.get("name") == task_name for item in self.task_queue.queue)
+
+    def has_pending_tasks(self, task_names) -> bool:
+        """Return True when any task in task_names is queued but not started yet."""
+        names = set(task_names)
+        with self.task_queue.mutex:
+            return any(item.get("name") in names for item in self.task_queue.queue)
+
+    def clear_pending_tasks(self, task_names) -> int:
+        """Remove queued tasks by name and return the number removed."""
+        names = set(task_names)
+        removed = 0
+        with self.task_queue.mutex:
+            pending = list(self.task_queue.queue)
+            self.task_queue.queue.clear()
+            for item in pending:
+                if item.get("name") in names:
+                    removed += 1
+                else:
+                    self.task_queue.queue.append(item)
+        return removed
+
     def _start_task_internal(self, task_name: str, params: Dict[str, Any]):
         """内部启动任务"""
         with self.lock:
@@ -267,6 +292,24 @@ class TaskScheduler:
             except Exception as e:
                 self.logger.exception(f"停止任务失败: {task_name}")
                 return False
+
+    def promote_current_task(self, task_name: str):
+        """Rename the running task without stopping its instance."""
+        with self.lock:
+            if not self.current_task:
+                self.logger.warning("没有正在运行的任务")
+                return False
+            old_name = self.current_task["name"]
+            task_instance = self.current_task["instance"]
+            self.current_task["name"] = task_name
+            if hasattr(task_instance, "name"):
+                task_instance.name = task_name
+            if old_name in self.task_instances:
+                del self.task_instances[old_name]
+            self.task_instances[task_name] = task_instance
+            self._add_to_history("task_promoted", {"from": old_name, "to": task_name})
+            self._trigger_callback("task_promoted", {"from": old_name, "to": task_name})
+            return True
     
     def get_system_status(self):
         """获取系统状态"""

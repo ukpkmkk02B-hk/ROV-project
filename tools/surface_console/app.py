@@ -2,9 +2,10 @@ import argparse
 import json
 import mimetypes
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
@@ -24,7 +25,8 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
             print(f"[SurfaceConsole] {self.address_string()} - {fmt % args}")
 
         def do_GET(self):
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
             if path == "/api/status":
                 self._json_response(
                     {
@@ -39,6 +41,9 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
                 return
             if path == "/api/latest-frame.jpg":
                 self._serve_latest_frame()
+                return
+            if path == "/api/video.mjpg":
+                self._serve_mjpeg_stream(parsed.query)
                 return
             self._serve_static(path)
 
@@ -111,6 +116,51 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
             self.end_headers()
             self.wfile.write(frame)
 
+        def _serve_mjpeg_stream(self, query):
+            params = parse_qs(query)
+            fps = _bounded_float(params.get("fps", ["25"])[0], default=25.0, minimum=1.0, maximum=25.0)
+            once = params.get("once", ["0"])[0].lower() in {"1", "true", "yes"}
+            frame_interval_s = 1.0 / fps
+            boundary = b"frame"
+            last_frame_time = None
+
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Pragma", "no-cache")
+            self.end_headers()
+
+            try:
+                while True:
+                    snapshot = client.latest_frame_snapshot()
+                    frame = snapshot.get("frame")
+                    frame_time = snapshot.get("latest_frame_time")
+                    if frame is None:
+                        if once:
+                            return
+                        time.sleep(0.05)
+                        continue
+
+                    if not once and frame_time is not None and frame_time == last_frame_time:
+                        time.sleep(min(0.02, frame_interval_s))
+                        continue
+
+                    self._write_mjpeg_part(boundary, frame)
+                    last_frame_time = frame_time
+                    if once:
+                        return
+                    time.sleep(frame_interval_s)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+
+        def _write_mjpeg_part(self, boundary, frame):
+            self.wfile.write(b"--" + boundary + b"\r\n")
+            self.wfile.write(b"Content-Type: image/jpeg\r\n")
+            self.wfile.write(f"Content-Length: {len(frame)}\r\n\r\n".encode("ascii"))
+            self.wfile.write(frame)
+            self.wfile.write(b"\r\n")
+            self.wfile.flush()
+
         def _json_response(self, data, status=200):
             raw = json.dumps(data).encode("utf-8")
             self.send_response(status)
@@ -124,6 +174,13 @@ def make_handler(client, config_path, default_rov_host, default_rov_port):
             return read_console_config(config_path)
         except Exception as exc:
             return {"error": str(exc)}
+
+    def _bounded_float(value, default, minimum, maximum):
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
 
     return SurfaceConsoleHandler
 

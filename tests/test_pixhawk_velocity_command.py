@@ -24,12 +24,16 @@ class FakeMavlinkConstants:
 class FakeMav:
     def __init__(self):
         self.position_target = None
+        self.rc_override = None
 
     def set_position_target_local_ned_send(self, *args):
         self.position_target = args
 
     def command_long_send(self, *args):
         self.command_long = args
+
+    def rc_channels_override_send(self, *args):
+        self.rc_override = args
 
 
 class FakeMaster:
@@ -88,6 +92,33 @@ class PixhawkVelocityCommandTests(unittest.TestCase):
         self.assertEqual(comm.master.mav.position_target[9], 0.2)
         self.assertEqual(comm.master.mav.position_target[10], 0.3)
         self.assertEqual(comm.master.mav.position_target[15], -0.2)
+
+    def test_send_rc_override_requires_active_master(self):
+        module = import_pixhawk_with_stubs()
+        comm = module.PixhawkComm({"device": "fake", "baud": 115200})
+        comm.master = None
+
+        with self.assertRaisesRegex(RuntimeError, "Pixhawk is not connected"):
+            comm.send_rc_override({"ch3": 1500})
+
+    def test_send_rc_override_sends_all_channels_with_defaults(self):
+        module = import_pixhawk_with_stubs()
+        comm = module.PixhawkComm({"device": "fake", "baud": 115200})
+        comm.master = FakeMaster()
+
+        comm.send_rc_override({"ch5": 1600})
+
+        self.assertEqual(
+            comm.master.mav.rc_override,
+            (1, 1, 1500, 1500, 1500, 1500, 1600, 1500, 1500, 1500),
+        )
+
+    def test_stop_with_no_master_does_not_raise(self):
+        module = import_pixhawk_with_stubs()
+        comm = module.PixhawkComm({"device": "fake", "baud": 115200})
+        comm.master = None
+
+        comm.stop()
 
 
 if __name__ == "__main__":

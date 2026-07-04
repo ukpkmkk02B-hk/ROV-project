@@ -81,6 +81,8 @@
             </div>
             <dl class="status-grid">
               <dt>任务阶段 / Stage</dt><dd id="taskStage">-</dd>
+              <dt>任务模式 / Mission</dt><dd id="missionMode">-</dd>
+              <dt>跟踪就绪 / Tracking ready</dt><dd id="trackingReady">-</dd>
               <dt>垂向模式 / Vertical</dt><dd id="trackingVerticalMode">-</dd>
               <dt>捕获 ch3 / Captured</dt><dd id="capturedCh3">-</dd>
               <dt>预对接轴控 / Pre-align</dt><dd id="preAlignMode">-</dd>
@@ -123,7 +125,7 @@
             </div>
             <div class="visual-debug-grid">
               <div class="video-stage">
-                <img id="videoFrame" class="video-frame" alt="ROV camera frame" hidden>
+                <img id="videoFrame" class="video-frame" src="/api/video.mjpg?fps=25" alt="ROV camera frame" hidden>
                 <div id="videoPlaceholder" class="video-placeholder">等待 Linux 主机视频帧 / Waiting for video frame</div>
               </div>
               <aside class="pose-panel">
@@ -178,6 +180,14 @@
                 </div>
               </div>
               <div class="button-grid">
+                <button data-rov="tracking start" type="button">
+                  <span>开始跟踪</span>
+                  <small>Start Tracking</small>
+                </button>
+                <button data-rov="tracking stop" class="secondary" type="button">
+                  <span>停止跟踪</span>
+                  <small>Stop Tracking</small>
+                </button>
                 <button data-rov="tracking mode visual_pid" type="button">
                   <span>视觉 PID</span>
                   <small>Visual PID</small>
@@ -202,8 +212,8 @@
               </div>
               <div class="button-grid docking-grid">
                 <button data-rov="docking start" type="button">
-                  <span>开始对接</span>
-                  <small>Start</small>
+                  <span>进入对接</span>
+                  <small>Engage Docking</small>
                 </button>
                 <button data-rov="docking confirm" type="button">
                   <span>人工确认</span>

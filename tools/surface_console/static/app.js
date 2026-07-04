@@ -12,6 +12,7 @@ const LABELS = {
     shutdown: "已关闭 / shutdown",
   },
   task: {
+    tracking: "跟踪 / tracking",
     docking: "对接 / docking",
     charging: "充电 / charging",
     fish_control: "子机器人控制 / fish_control",
@@ -165,6 +166,9 @@ function renderSummary(taskStatus, currentTask, config) {
 }
 
 function renderTaskStatus(currentTask, config, rov) {
+  setText("missionMode", currentTask.mission_mode || "-");
+  setText("trackingReady", formatBool(currentTask.tracking_ready));
+  setClass("trackingReady", currentTask.tracking_ready === true ? "ok" : "");
   setText(
     "trackingVerticalMode",
     formatEnum(currentTask.tracking_vertical_mode || config.tracking_vertical_mode, LABELS.verticalMode),
@@ -186,7 +190,9 @@ function renderVideoStatus(video) {
   setClass("videoState", hasFrame ? "status-pill ok" : "status-pill");
   setText("videoFrameTime", formatTime(video.latest_frame_time));
   setText("videoFrameSize", video.latest_frame_size ? `${video.latest_frame_size} B` : "-");
-  if (!hasFrame) {
+  if (hasFrame) {
+    showVideoFrame();
+  } else {
     hideVideoFrame();
   }
 }
@@ -249,19 +255,24 @@ async function refreshStatus() {
   }
 }
 
-function refreshVideoFrame() {
-  if (!state.hasVideo) {
+function configureVideoStream() {
+  const frame = $("videoFrame");
+  if (!frame) return;
+  frame.onload = showVideoFrame;
+  frame.onerror = () => {
     hideVideoFrame();
-    return;
-  }
+    setTimeout(() => {
+      frame.src = `/api/video.mjpg?fps=25&t=${Date.now()}`;
+    }, 1000);
+  };
+}
+
+function showVideoFrame() {
   const frame = $("videoFrame");
   const placeholder = $("videoPlaceholder");
-  frame.onload = () => {
-    frame.hidden = false;
-    placeholder.hidden = true;
-  };
-  frame.onerror = hideVideoFrame;
-  frame.src = `/api/latest-frame.jpg?t=${Date.now()}`;
+  if (!frame || !placeholder) return;
+  frame.hidden = false;
+  placeholder.hidden = true;
 }
 
 function hideVideoFrame() {
@@ -340,6 +351,6 @@ for (const button of rovButtons) {
   button.addEventListener("click", () => sendRovCommand(button.dataset.rov).catch(handleUiError));
 }
 
+configureVideoStream();
 refreshStatus();
 setInterval(refreshStatus, 1000);
-setInterval(refreshVideoFrame, 500);

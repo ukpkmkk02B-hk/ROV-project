@@ -151,6 +151,14 @@ class RovTcpClient:
         with self._lock:
             return self._latest_frame
 
+    def latest_frame_snapshot(self):
+        with self._lock:
+            return {
+                "frame": self._latest_frame,
+                "latest_frame_time": self._latest_frame_time,
+                "latest_frame_size": self._latest_frame_size,
+            }
+
     def handle_received_bytes(self, data):
         now = time.time()
         with self._lock:

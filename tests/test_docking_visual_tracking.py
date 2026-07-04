@@ -132,6 +132,202 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(pixhawk.arm_calls, 0)
         self.assertEqual(pixhawk.mode_calls, [])
 
+    def test_tracking_mission_does_not_auto_enter_pre_align_when_ready(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        task = module.DockingTask(
+            camera=FakeCamera([pose]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "min_pre_dock_valid_frames": 1,
+                "pre_dock_position_tolerance_m": 0.05,
+                "pre_dock_distance_tolerance_m": 0.05,
+                "pre_dock_yaw_tolerance_deg": 5.0,
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+
+        status = task.get_status()
+        self.assertEqual(status["name"], "tracking")
+        self.assertEqual(status["mission_mode"], "tracking")
+        self.assertEqual(status["stage"], module.DockingTask.STATE_TRACK)
+        self.assertTrue(status["tracking_ready"])
+        self.assertFalse(status["pre_dock_ready"])
+        self.assertIsNotNone(status["last_pose"])
+        self.assertIsNotNone(status["filtered_state"])
+        self.assertIn("control_cmd", status)
+        self.assertIn("rc_override", status)
+
+    def test_engage_docking_promotes_tracking_without_clearing_state(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        task = module.DockingTask(
+            camera=FakeCamera([pose]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "min_pre_dock_valid_frames": 1,
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            previous_pose = task.last_pose
+            previous_state = task.filtered_state
+            previous_rc = dict(task.last_rc_override)
+            result = task.engage_docking(source="unit_test")
+
+        status = task.get_status()
+        self.assertTrue(result["accepted"])
+        self.assertEqual(status["name"], "docking")
+        self.assertEqual(status["mission_mode"], "docking")
+        self.assertEqual(status["stage"], module.DockingTask.STATE_PRE_ALIGN)
+        self.assertIs(task.last_pose, previous_pose)
+        self.assertEqual(task.filtered_state, previous_state)
+        self.assertEqual(task.last_rc_override, previous_rc)
+
+    def test_engage_docking_resets_docking_timeout_clock(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([pose]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.8,
+                "min_pre_dock_valid_frames": 1,
+            },
+        )
+
+        with patch("builtins.print"), patch.object(module.time, "time", return_value=0.0):
+            task.start()
+        with patch("builtins.print"), patch.object(module.time, "time", return_value=10.0):
+            task.run()
+        with patch.object(module.time, "time", return_value=70.0):
+            result = task.engage_docking(source="unit_test")
+
+        task.camera.poses.append(dict(pose, timestamp=71.0))
+        with patch("builtins.print"), patch.object(module.time, "time", return_value=71.0):
+            task.run()
+
+        self.assertTrue(result["accepted"])
+        self.assertNotEqual(task.status, "failed")
+        self.assertNotEqual(task.stage, module.DockingTask.STATE_FAILED)
+        self.assertFalse(pixhawk.stopped)
+
+    def test_manual_dock_confirm_rejects_during_tracking_mission(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={"enable_motion": False},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            result = task.confirm_manual_dock(source="unit_test")
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "not_docking")
+
+    def test_tracking_mission_does_not_timeout_after_sixty_seconds(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 61.0,
+        }
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([pose]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={"enable_motion": False, "desired_z_m": 0.8},
+        )
+
+        with patch("builtins.print"), patch.object(module.time, "time", return_value=61.0):
+            task.start_time = 0.0
+            task.status = "running"
+            task.run()
+
+        self.assertEqual(task.status, "running")
+        self.assertEqual(task.stage, module.DockingTask.STATE_TRACK)
+        self.assertFalse(pixhawk.stopped)
+
+    def test_failure_sends_neutral_without_closing_pixhawk_connection(self):
+        module = import_docking_with_stubs()
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            tracking_config={
+                "enable_motion": True,
+                "output_backend": "rc_override",
+                "rc_override": {
+                    "enabled": True,
+                    "channels": {
+                        "forward": "ch5",
+                        "right": "ch6",
+                        "up": "ch3",
+                        "yaw": "ch4",
+                    },
+                },
+            },
+        )
+
+        with patch("builtins.print"):
+            task._handle_failure()
+
+        self.assertEqual(task.status, "failed")
+        self.assertFalse(pixhawk.stopped)
+        self.assertEqual(pixhawk.commands[-1], {"rc": {f"ch{i}": 1500 for i in range(1, 9)}})
+
     def test_recent_predicted_state_can_trigger_pre_dock_ready(self):
         module = import_docking_with_stubs()
         task = module.DockingTask(
@@ -402,7 +598,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertTrue(status["manual_dock_confirmed"])
         self.assertEqual(status["dock_completion_source"], "unit_test")
         self.assertFalse(status["charging_start_requested"])
-        self.assertTrue(pixhawk.stopped)
+        self.assertFalse(pixhawk.stopped)
         self.assertIn(("completed", "docking"), state_machine.events)
         self.assertNotIn(("start_task", "charging"), state_machine.events)
 

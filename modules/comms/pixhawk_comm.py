@@ -152,7 +152,11 @@ class PixhawkComm(CommunicationBase):
         """停止通信线程并清理资源"""
         self.logger.info("正在停止通信线程...")
         self.running = False  # 设置停止标志
-        self.disarm_vehicle()
+        if self.master is not None:
+            try:
+                self.disarm_vehicle()
+            except Exception as e:
+                self.logger.error(f"发送上锁指令时出错: {e}")
         # 关闭串口连接
         if self.master is not None:
             try:
@@ -351,6 +355,8 @@ class PixhawkComm(CommunicationBase):
         channels: dict, 可传 {'ch3':1500, 'ch4':1500, 'ch5':1600, 'ch6':1600}
         未指定的通道使用中位值 1500
         """
+        if self.master is None:
+            raise RuntimeError("Pixhawk is not connected")
         ch1 = channels.get('ch1', 1500)
         ch2 = channels.get('ch2', 1500)
         ch3 = channels.get('ch3', 1500)
