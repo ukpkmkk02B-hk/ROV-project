@@ -8,18 +8,13 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
 import time
-import math
 from modules.controller import path_follower, precision_docking
 from modules.controller.motion_command import camera_state_to_body_error, motion_command_from_mapping
 from modules.controller.rc_override_mapper import RcOverrideMapper
 from modules.controller.visual_axis_policy import VisualAxisPolicy
 from modules.controller.visual_tracking_controller import VisualTrackingController
-from modules.comms.pixhawk_comm import PixhawkComm
-from modules.comms.comm_base import CommunicationBase
-from modules.perception.camera import AprilTagCameraInterface
 from modules.perception.marker_tracker import validate_pose_quality
 from modules.state.state_estimator import ConstantVelocityEKF
-from modules.states_machine.state_machine import TaskScheduler
 
 
 class DockingTask:

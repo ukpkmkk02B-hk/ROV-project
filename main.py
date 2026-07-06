@@ -13,10 +13,7 @@ from modules.telemetry.status_reporter import StatusReporter
 from modules.comms.pixhawk_comm import PixhawkComm
 from modules.comms.fish_comm import FishComm
 from modules.comms.charging_comm import ChargingComm
-from modules.comms.depth_forwarder import DepthReader
 
-from modules.perception.camera import AprilTagCameraInterface
-from modules.perception.marker_tracker import ArucoMarkerTracker
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
 from modules.tasks.docking_confirmation import confirm_current_docking_task
@@ -52,7 +49,11 @@ def create_main_camera(config, surface):
     vision_config = config.get("vision_tracking", {})
     marker_type = vision_config.get("marker_type", "apriltag").lower()
     if marker_type == "aruco":
+        from modules.perception.marker_tracker import ArucoMarkerTracker
+
         return ArucoMarkerTracker(vision_config, surface=surface)
+    from modules.perception.camera import AprilTagCameraInterface
+
     return AprilTagCameraInterface(config["AprilTagCamera_Main"], surface=surface)
 
 
@@ -341,14 +342,7 @@ def main():
              servo_out = pixhawk.get_servo_outputs()
              if servo_out:
                 print(f"[PWM] {servo_out}")
-             current_pose = camera.get_pose()
-                #打印数据（实际使用时可替换为你的业务逻辑）
-             if current_pose:
-                print("\n最新姿态数据：")
-                print(f"标签ID: {current_pose['id']}")
-                print(f"坐标(X,Y,Z): ({current_pose['x']:.2f}, {current_pose['y']:.2f}, {current_pose['z']:.2f})")
-                print(f"角度(Roll,Pitch,Yaw): ({current_pose['roll']:.1f}, {current_pose['pitch']:.1f}, {current_pose['yaw']:.1f})")
-             time.sleep(0.1)  # 每秒检查一次状态    
+             time.sleep(0.1)  # 每秒检查一次状态
     except KeyboardInterrupt:
         print("[MAIN] 🛑 收到中断，正在退出...")
         # === 停止所有模块 ===

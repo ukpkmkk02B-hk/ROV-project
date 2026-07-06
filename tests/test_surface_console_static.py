@@ -45,6 +45,14 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         self.assertIn("/api/video.mjpg?fps=25", html)
         self.assertNotIn("setInterval(refreshVideoFrame, 500)", js)
 
+    def test_surface_console_clarifies_motion_and_restart_semantics(self):
+        html = Path("tools/surface_console/static/index.html").read_text(encoding="utf-8")
+        js = Path("tools/surface_console/static/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("Visual closed-loop motion output", html)
+        self.assertIn("not a global manual RC lock", html)
+        self.assertIn("Restart main.py to apply", js)
+
 
 if __name__ == "__main__":
     unittest.main()

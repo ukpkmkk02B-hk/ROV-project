@@ -270,6 +270,13 @@ input[type="checkbox"] {
   min-height: 18px;
 }
 
+.field-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .button-row,
 .button-grid,
 .motion-pad {
