@@ -1,0 +1,923 @@
+# ROV / ARV 上位机操作手册
+
+本文档说明 `tools/surface_console/` 浏览器上位机的启动、连接、观察、参数调整、Tracking / Docking 操作和安全注意事项。
+
+适用范围：
+
+- Linux 小主机运行路径：`/home/cekong418/rov_project`
+- ROV 主程序入口：`main.py`
+- Web 上位机入口：`tools/surface_console/app.py`
+- 当前视觉主线：ArUco ID 20，`DICT_4X4_50`
+- 当前控制输出主线：RC override
+
+## 1. 安全前提
+
+下水或推进器通电前，必须确认：
+
+1. ROV 周围无人手、线缆或障碍物靠近推进器。
+2. Pixhawk 已连接，且上位机能看到当前 mode / armed 状态。
+3. STOP 和 Disarm 按钮可用。
+4. ArUco 画面、位姿、RC 输出显示正常。
+5. 首次验证时保持 `enable_motion=false`，只看 dry-run 输出。
+6. 只有在 dry-run 正常后，才考虑将 `enable_motion=true`。
+
+重要语义：
+
+- `enable_motion=false` 只禁止 Tracking / Docking 视觉闭环运动输出。
+- `enable_motion=false` 不是全局手动 RC 锁。
+- STOP / Disarm 是独立安全动作，不能用 `enable_motion` 代替。
+- Start Tracking 默认不会自动 Arm。真实运动前需要手动 Arm。
+- 配置保存后需要重启 `main.py` 才能让新建的 Tracking / Docking 任务读取新参数。
+
+## 2. 启动流程
+
+### 2.1 启动 ROV 主程序
+
+在 Linux 小主机终端中运行：
+
+```bash
+cd /home/cekong418/rov_project
+
+if [ -f .venv_linux/bin/activate ]; then
+  source .venv_linux/bin/activate
+fi
+
+PYTHONPATH=. python main.py
+```
+
+`main.py` 负责：
+
+- 连接 Pixhawk / 串口设备。
+- 启动摄像头和 ArUco 跟踪。
+- 启动 SurfaceComm TCP 服务，默认端口 `9002`。
+- 向 Web 上位机发送状态和视频帧。
+
+如果 `main.py` 未运行，Web 上位机会显示连接失败或没有视频画面。
+
+### 2.2 启动 Web 上位机
+
+另开一个 Linux 终端：
+
+```bash
+cd /home/cekong418/rov_project
+
+if [ -f .venv_linux/bin/activate ]; then
+  source .venv_linux/bin/activate
+fi
+
+PYTHONPATH=. python tools/surface_console/app.py \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --rov-host 127.0.0.1 \
+  --rov-port 9002
+```
+
+Web 上位机负责：
+
+- 在浏览器中显示控制台页面。
+- 连接 `main.py` 的 SurfaceComm 服务。
+- 显示视频、状态、位姿、RC 输出。
+- 向 `main.py` 发送 ROV 控制命令。
+- 修改白名单内的 `vision_tracking` 参数。
+
+### 2.3 打开页面
+
+如果在 Linux 小主机本机浏览器打开：
+
+```text
+http://127.0.0.1:8080
+```
+
+如果在 Windows 笔记本浏览器通过网线访问 Linux 小主机：
+
+```text
+http://Linux小主机IP:8080
+```
+
+例如之前常用地址可能是：
+
+```text
+http://192.168.88.2:8080
+```
+
+如果网络变了，先在 Linux 上用以下命令查看 IP：
+
+```bash
+ip addr
+```
+
+## 3. 上位机点击操作速查
+
+本章按“鼠标点哪里、看哪里、下一步做什么”写。第一次使用时建议按本章顺序操作，不要跳步。
+
+### 3.1 第一步：连接 ROV
+
+页面左上区域是 `连接 ROV / Connect`。
+
+操作步骤：
+
+1. 找到 `主机 / Host` 输入框。
+2. 如果 Web 上位机和 `main.py` 都在 Linux 小主机上运行，填 `127.0.0.1`。
+3. 找到 `端口 / Port` 输入框，填 `9002`。
+4. 点击 `连接 / Connect`。
+5. 看页面左上标题下面的连接状态。
+
+连接成功时应看到：
+
+```text
+已连接 / Connected: 127.0.0.1:9002
+```
+
+如果连接失败：
+
+1. 不要继续点 Tracking 或 Arm。
+2. 先确认 `main.py` 终端还在运行。
+3. 确认 `main.py` 没有报错退出。
+4. 再回到页面点击 `连接 / Connect`。
+
+### 3.2 第二步：确认视频画面
+
+页面中间最大的一块是 `视觉画面 / Vision Feed`。
+
+操作步骤：
+
+1. 连接成功后，看中间是否出现摄像头画面。
+2. 把 ArUco 码放到摄像头前。
+3. 确认画面中能完整看到 ArUco 码。
+4. 如果识别成功，画面上应出现绿色框、中心点、坐标轴和文字。
+5. 看视频区域右上角状态，应显示 `有画面 / Live`。
+
+如果没有画面：
+
+1. 先不要点击 `Start Tracking`。
+2. 确认 `main.py` 是否正常运行。
+3. 确认摄像头没有被 `guvcview` 占用。
+4. 检查 `/dev/camera_main` 是否指向正确摄像头。
+
+### 3.3 第三步：只看不动 dry-run Tracking
+
+这个步骤用于确认视觉识别、位姿和 RC 输出是否合理，但不让 ROV 因视觉闭环运动。
+
+开始前确认：
+
+1. 页面顶部 `运动输出 / Motion` 显示 `否 / false`。
+2. 如果显示 `是 / true`，先不要继续，去参数区关闭 `enable_motion` 并重启 `main.py`。
+
+点击步骤：
+
+1. 找到 `跟踪 / Tracking` 区域。
+2. 点击 `开始跟踪 / Start Tracking`。
+3. 看左侧 `任务诊断 / Task`：
+   - `任务模式 / Mission` 应显示 `tracking`。
+   - `任务阶段 / Stage` 应显示 `track` 或类似跟踪状态。
+4. 看右侧 `位姿 / Pose`：
+   - `检测 / Detected` 应为 `true`。
+   - `有效 / Valid` 应为 `true`。
+5. 看右侧 `机体系 / Body`：
+   - `forward / right / up / yaw error` 应随 ArUco 位置变化。
+6. 看右侧 `输出 / Output`：
+   - `Command` 应有 `forward_m_s`、`right_m_s`、`up_m_s`、`yaw_rate_rad_s`。
+   - `RC override` 应有 `ch3/ch4/ch5/ch6`。
+7. 测完点击红色 `STOP`。
+
+此时如果 `enable_motion=false`，ROV 不应该因为视觉闭环运动。你主要看数值是否变化。
+
+### 3.4 第四步：手动方向按钮测试
+
+手动方向按钮在 `手动运动 / Manual Motion` 区域。
+
+重要提醒：
+
+- 手动按钮可能直接发送 RC。
+- 每次只点一个方向。
+- 每次动作后都点 `STOP`。
+- 异常时先点 `STOP`，再点 `上锁 / Disarm`。
+
+推荐点击顺序：
+
+1. 确认 ROV 在水中且周围安全。
+2. 点击 `STABILIZE`。
+3. 点击 `解锁 / Arm`。
+4. 点击 `上升 / Up`，观察是否上浮。
+5. 点击 `STOP`。
+6. 点击 `下降 / Down`，观察是否下潜。
+7. 点击 `STOP`。
+8. 点击 `前进 / Forward`，观察是否前进。
+9. 点击 `STOP`。
+10. 点击 `后退 / Backward`，观察是否后退。
+11. 点击 `STOP`。
+12. 点击 `左移 / Left`，观察是否左移。
+13. 点击 `STOP`。
+14. 点击 `右移 / Right`，观察是否右移。
+15. 点击 `STOP`。
+16. 全部完成后点击 `上锁 / Disarm`。
+
+当前修正后的升沉方向：
+
+```text
+上升 / Up   -> ch3 小于 1500
+下降 / Down -> ch3 大于 1500
+```
+
+如果发现某个方向仍然反了：
+
+1. 立刻点击 `STOP`。
+2. 点击 `上锁 / Disarm`。
+3. 记录哪个按钮、实际怎么动、页面 Output 中 RC 是多少。
+4. 不要继续做视觉闭环。
+
+### 3.5 第五步：开启真实视觉闭环运动
+
+只有以下条件全部满足，才做这一步：
+
+1. 视频正常。
+2. ArUco 框正常。
+3. dry-run Tracking 的 Pose / Body / Output 正常。
+4. 手动方向按钮方向正确。
+5. STOP 和 Disarm 确认可用。
+
+点击步骤：
+
+1. 找到页面下方 `参数 / Parameters`。
+2. 找到 `运动安全 / Motion Safety`。
+3. 勾选 `视觉闭环运动输出 / Visual closed-loop motion output`。
+4. 勾选配置区底部的 `确认 enable_motion 修改 / Confirm enable_motion change`。
+5. 点击 `保存配置 / Save Config`。
+6. 看到保存成功提示后，回到终端停止 `main.py`。
+7. 重新运行 `main.py`。
+8. 回到上位机，点击 `连接 / Connect`。
+9. 点击 `STABILIZE`。
+10. 点击 `解锁 / Arm`。
+11. 点击 `开始跟踪 / Start Tracking`。
+12. 观察 ROV 是否低功率跟踪 ArUco。
+13. 异常时立即点击 `STOP`，再点击 `上锁 / Disarm`。
+
+注意：
+
+- 保存配置后不重启 `main.py`，新参数可能不会生效。
+- Start Tracking 默认不会自动 Arm，所以真实运动前必须手动点击 Arm。
+
+### 3.6 Tracking 中使用 Capture ch3 / Hold ch3
+
+这部分用于“记录当前升沉通道值，然后保持这个 ch3”。
+
+使用场景：
+
+- ROV 已经在合适深度附近。
+- 你不想让视觉 PID 继续自动调升沉。
+- 只希望视觉继续控制前后、左右、偏航。
+
+点击步骤：
+
+1. 先点击 `开始跟踪 / Start Tracking`。
+2. 等 ArUco 框稳定。
+3. 看右侧 `Pose` 中 `Detected=true`、`Valid=true`。
+4. 看左侧 `任务诊断 / Task` 中 Tracking 状态正常。
+5. 点击 `捕获 ch3 / Capture ch3`。
+6. 看左侧 `捕获 ch3 / Captured`，应显示一个 PWM 数值。
+7. 点击 `保持 ch3 / Hold ch3`。
+8. 之后视觉闭环的升沉输出会归零，最终 RC 的 ch3 保持捕获值。
+
+如果点击 `Hold ch3` 被拒绝：
+
+- 通常是还没有成功点击 `Capture ch3`。
+- 或当前没有有效视觉观测。
+- 重新放好 ArUco，等识别稳定后再捕获。
+
+### 3.7 从 Tracking 进入 Docking
+
+Docking 不是直接开始的，必须先 Tracking。
+
+正确点击顺序：
+
+1. 点击 `开始跟踪 / Start Tracking`。
+2. 等右侧 `Pose` 和 `Body` 稳定。
+3. 看左侧 `跟踪就绪 / Tracking ready`。
+4. 找到 `协同对接 / Docking` 区域。
+5. 点击 `进入对接 / Engage Docking`。
+6. 看左侧 `任务模式 / Mission`，应从 `tracking` 变成 `docking`。
+7. 看顶部 `预对接 / Pre-dock`。
+8. 如果 `pre_dock_ready=true`，可以点击 `人工确认 / Confirm`。
+9. 对接流程结束后点击 `STOP`。
+10. 如果真实运动已经启用，最后点击 `上锁 / Disarm`。
+
+如果直接点击 `Engage Docking` 被拒绝：
+
+- 这是正常保护。
+- 说明当前没有先运行 Tracking，或者没有最近有效视觉观测。
+- 先回到 Tracking 区点击 `Start Tracking`。
+
+### 3.8 预对接轴控按钮怎么选
+
+在 `Docking` 区有三个按钮：
+
+- `全轴控制 / Full Control`
+- `小修正 / Small Correction`
+- `锁定水平 / Lock Horizontal`
+
+首次验证推荐：
+
+1. 优先点击 `小修正 / Small Correction`。
+2. 不建议一开始使用 `全轴控制 / Full Control`。
+3. 如果只想测试垂向或避免水平漂移，可点击 `锁定水平 / Lock Horizontal`。
+
+按钮含义：
+
+- `Full Control`：前后、左右、升沉、偏航都参与。
+- `Small Correction`：前后、左右、偏航只做小幅修正。
+- `Lock Horizontal`：前后、左右、偏航置零，只保留允许的垂向策略。
+
+### 3.9 停止和恢复
+
+遇到异常时按这个顺序：
+
+1. 点击红色 `STOP`。
+2. 观察 ROV 是否停止。
+3. 点击 `上锁 / Disarm`。
+4. 如果页面进入 `system_error`，点击或发送 `reset` 前，先确认推进器已经停止。
+5. 重新开始时，先从 `Connect` 和 dry-run 检查做起。
+
+不要在异常后直接连续点击 `Start Tracking`。
+
+## 4. 页面区域说明
+
+### 4.1 顶部状态栏
+
+顶部显示：
+
+- 连接状态：是否连接到 `main.py`。
+- 系统状态：`system_idle`、`task_running`、`system_error` 等。
+- 当前任务：`tracking`、`docking`、`charging` 等。
+- 运动输出：当前配置中的 `enable_motion`。
+- 预对接状态：`pre_dock_ready`。
+
+### 4.2 连接 ROV / Connect
+
+默认连接：
+
+- Host：`127.0.0.1`
+- Port：`9002`
+
+使用方式：
+
+1. 确认 `main.py` 已运行。
+2. 点击 `Connect`。
+3. 页面显示 `Connected: 127.0.0.1:9002` 后表示连接成功。
+
+如果出现 `errno 111` 或连接失败：
+
+- 通常表示 `main.py` 没有运行。
+- 或 Web 上位机连接的 Host / Port 不对。
+- 或 `main.py` 已崩溃退出。
+
+### 4.3 视觉画面 / Vision Feed
+
+视频区域显示 Linux 小主机传来的摄像头画面。
+
+正常情况：
+
+- 页面显示实时摄像头画面。
+- ArUco 被识别后，画面上有绿色检测框、中心点、坐标轴和文字信息。
+- 右侧显示视频帧时间和帧大小。
+
+如果没有画面：
+
+1. 确认 `main.py` 正在运行。
+2. 确认 Web 已连接 ROV。
+3. 确认 `/dev/camera_main` 指向正确摄像头。
+4. 确认没有 `guvcview` 或其他程序占用摄像头。
+
+### 4.4 位姿 / Pose
+
+右侧 Pose 面板显示：
+
+- `Detected`：是否检测到目标。
+- `Valid`：位姿是否通过质量过滤。
+- `Reject`：位姿被拒绝原因。
+- `Reproj`：重投影误差。
+- `x / y / z`：相机坐标系下的位姿。
+- `yaw`：视觉解算偏航角。
+
+注意：
+
+- 只有运行 Tracking 或 Docking 后，右侧位姿和输出才会稳定更新。
+- 如果只连接 Web 但没有启动 Tracking，可能只有视频，没有任务位姿状态。
+
+### 4.5 机体系 / Body
+
+Body 面板显示视觉位姿转换到母鱼机体系后的误差：
+
+- `forward`：前后距离。
+- `right`：左右偏差。
+- `up`：升沉偏差。
+- `yaw error`：偏航误差。
+- `filtered z / yaw`：滤波后的距离和偏航。
+
+这些值是视觉闭环 PID 的输入依据。
+
+### 4.6 输出 / Output
+
+Output 面板显示：
+
+- `Command`：视觉控制器输出，例如 `forward_m_s`、`right_m_s`、`up_m_s`、`yaw_rate_rad_s`。
+- `RC override`：最终将要发送或 dry-run 记录的 RC 通道值。
+
+当前 RC 方向约定：
+
+- `forward -> ch5`
+- `right -> ch6`
+- `up -> ch3`
+- `yaw -> ch4`
+
+当前升沉方向已经按实机修正：
+
+- 手动上浮：`ch3 < 1500`
+- 手动下潜：`ch3 > 1500`
+- 视觉闭环 `up_m_s > 0`：`ch3 < 1500`
+- 视觉闭环 `up_m_s < 0`：`ch3 > 1500`
+
+## 5. Motion Safety 区域
+
+按钮：
+
+- `STABILIZE`：切换 Pixhawk 到 STABILIZE。
+- `ALT_HOLD`：切换到 ALT_HOLD。
+- `MANUAL`：切换到 MANUAL。
+- `Arm`：解锁。
+- `Disarm`：上锁。
+- `STOP`：停止当前视觉任务并回中 RC。
+
+首次水中验证推荐：
+
+1. 先连接 Web。
+2. 先确认 STOP 可用。
+3. 切换到 `STABILIZE`。
+4. 需要真实运动前，再手动点击 `Arm`。
+5. 任何异常先点 STOP，再点 Disarm。
+
+## 6. 手动运动 / Manual Motion
+
+手动按钮用于低速确认 RC 通道方向。
+
+按钮：
+
+- `Forward`：前进。
+- `Backward`：后退。
+- `Left`：左移。
+- `Right`：右移。
+- `Up`：上浮。
+- `Down`：下潜。
+- `STOP`：回中并停止。
+
+注意：
+
+- 手动按钮不等于视觉闭环。
+- 手动按钮可能在 `enable_motion=false` 时仍发送 RC。
+- 使用手动按钮前必须确认 ROV 在安全环境中。
+
+## 7. Tracking 操作流程
+
+Tracking 是视觉跟踪阶段，只负责：
+
+- 识别 ArUco。
+- 估计位姿。
+- 滤波。
+- 保持目标距离。
+- 控制前后、横向、升沉、偏航。
+- 输出 dry-run 或真实 RC override。
+
+Tracking 不负责：
+
+- 对接完成判定。
+- 充电启动。
+- 电磁铁读取。
+- 无线充电动作。
+
+### 7.1 Dry-run Tracking
+
+推荐先保持：
+
+```yaml
+enable_motion: false
+```
+
+操作：
+
+1. 启动 `main.py`。
+2. 启动 Web 上位机。
+3. 点击 `Connect`。
+4. 摄像头前放置 ArUco ID 20。
+5. 点击 `Start Tracking`。
+6. 观察：
+   - 视频是否有 ArUco 框。
+   - Pose 是否有效。
+   - Body 误差是否合理。
+   - Output 中 RC override 是否随移动变化。
+7. 点击 `STOP`。
+
+此时 ROV 不应因为视觉闭环而运动。
+
+### 7.2 真实低功率 Tracking
+
+只有 dry-run 正常后再做：
+
+1. 在参数区勾选 `enable_motion`。
+2. 同时勾选确认框。
+3. 点击 `Save Config`。
+4. 重启 `main.py`。
+5. 重新连接 Web。
+6. 确认模式为 `STABILIZE`。
+7. 手动点击 `Arm`。
+8. 点击 `Start Tracking`。
+9. 观察 ROV 是否按视觉误差低功率修正。
+10. 异常时立即点击 `STOP`，再点击 `Disarm`。
+
+注意：
+
+- Start Tracking 默认不会自动 Arm。
+- 如果没有手动 Arm，真实运动任务会被拒绝或不会输出有效推进动作。
+
+## 8. 垂向模式：Visual PID 与 Hold ch3
+
+Tracking 区有两种垂向策略：
+
+### 8.1 Visual PID
+
+`visual_pid` 模式下：
+
+- 前后、左右、升沉、偏航全部由视觉 PID 控制。
+- 适合测试完整四轴视觉闭环。
+
+### 8.2 Capture ch3 / Hold ch3
+
+目的：
+
+- 当 ROV 已经稳定在目标深度附近时，记录当前最终 RC override 的 `ch3`。
+- 后续保持这个 `ch3`，不再由视觉 PID 调整升沉。
+- 视觉仍可控制前后、左右、偏航。
+
+操作：
+
+1. 先运行 `Start Tracking`。
+2. 等 ArUco 稳定，状态中有最近有效观测。
+3. 点击 `Capture ch3`。
+4. 页面显示捕获的 ch3 PWM。
+5. 点击 `Hold ch3`。
+
+限制：
+
+- 未捕获 ch3 前，不能进入 `hold_captured_ch3` 真实运动输出。
+- 捕获值是视觉闭环最终 RC override 的 ch3，不是 Pixhawk 电机输出。
+
+## 9. Docking 操作流程
+
+当前 Docking 是 Tracking 之后的预对接流程。
+
+推荐流程：
+
+```text
+Start Tracking
+-> ArUco 稳定
+-> Tracking ready
+-> Engage Docking
+-> pre_dock_ready
+-> Confirm
+-> STOP / Disarm
+```
+
+### 9.1 进入对接
+
+要求：
+
+- 当前已经在 Tracking。
+- 有最近有效视觉观测。
+
+操作：
+
+1. 点击 `Start Tracking`。
+2. 等待视觉稳定。
+3. 点击 `Engage Docking`。
+
+如果没有先启动 Tracking，`Engage Docking` 会被拒绝。
+
+### 9.2 预对接轴控策略
+
+Docking 区提供：
+
+- `Full Control`：预对接阶段仍然全轴控制。
+- `Small Correction`：前后、左右、偏航只做小修正，默认推荐。
+- `Lock Horizontal`：锁定水平轴，只保留允许的垂向策略。
+
+首次下水建议：
+
+- 使用 `Small Correction`。
+- 不建议一开始用 `Full Control` 做激进闭环。
+
+### 9.3 人工确认对接
+
+点击 `Confirm` 的含义：
+
+- 表示视觉预对准后，由人工确认对接完成。
+- 当前不会自动启动无线充电。
+- 当前不会读取电磁铁。
+- 当前不会触发释放、吸附或充电动作。
+
+`Confirm` 接受条件：
+
+- 当前任务是 Docking。
+- 已进入 `pre_align`。
+- `pre_dock_ready=true`。
+
+## 10. 参数调节区
+
+参数保存后会写入 `config/settings.yaml`，但需要重启 `main.py` 才会进入新建任务。
+
+### 10.1 Tracking
+
+常用项：
+
+- `desired_z_m`：目标跟踪距离。
+- `max_v_m_s`：视觉输出最大线速度。
+- `max_yaw_rate_deg_s`：最大偏航角速度。
+- `control_deadband_m`：位置死区。
+- `yaw_deadband_deg`：偏航死区。
+- `command_smoothing_alpha`：命令平滑系数。
+- `tracking_vertical_mode`：垂向模式。
+
+建议：
+
+- 首次水中低功率验证不要同时大幅修改多个参数。
+- 每次只改一个参数，并记录现象。
+
+### 10.2 Pre-align
+
+常用项：
+
+- `pre_align_axis_mode`：预对接轴控模式。
+- `pre_align_correction_scale`：小修正比例。
+- `pre_align_max_v_m_s`：预对接最大速度。
+- `pre_align_max_yaw_rate_deg_s`：预对接最大偏航角速度。
+- `min_pre_dock_valid_frames`：进入预对接所需有效帧数。
+- `pre_dock_position_tolerance_m`：位置容差。
+- `pre_dock_distance_tolerance_m`：距离容差。
+- `pre_dock_yaw_tolerance_deg`：偏航容差。
+
+### 10.3 Vision Quality
+
+常用项：
+
+- `min_marker_pixel_size_px`：ArUco 最小像素边长。
+- `max_reprojection_error_px`：最大重投影误差。
+- `camera_to_body.yaw_offset_deg`：偏航角补偿。
+
+用于处理：
+
+- 光照变化。
+- 反光。
+- 码太小。
+- 角点误检。
+- yaw 偏置。
+
+### 10.4 PID Tuning
+
+当前页面只开放 P 增益：
+
+- `pid.forward.kp`
+- `pid.right.kp`
+- `pid.up.kp`
+- `pid.yaw.kp`
+
+原因：
+
+- 首次下水主要先调响应强弱。
+- `ki/kd` 更容易引入积分累积和高频抖动。
+- 当前项目已经对 D 项采取保守默认，不建议在上位机中随意开放。
+
+### 10.5 RC Output
+
+常用项：
+
+- `rc_override.pwm_per_m_s`：线速度命令到 PWM 偏移的比例。
+- `rc_override.pwm_per_rad_s`：偏航角速度到 PWM 偏移的比例。
+
+这些参数直接影响动作强弱。首次水中建议保守。
+
+### 10.6 Motion Safety
+
+- `enable_motion`：视觉闭环运动输出开关。
+
+修改要求：
+
+1. 勾选 `enable_motion`。
+2. 勾选确认框。
+3. 点击 `Save Config`。
+4. 重启 `main.py`。
+
+## 11. 推荐验证顺序
+
+### 11.1 不下水
+
+1. 启动 `main.py` 和 Web。
+2. 连接 Web。
+3. 看视频是否正常。
+4. 放置 ArUco ID 20。
+5. 点击 `Start Tracking`。
+6. 确认 Pose、Body、Output 更新。
+7. 点击 STOP。
+
+### 11.2 水中 dry-run
+
+1. 保持 `enable_motion=false`。
+2. ROV 下水但不启用视觉运动。
+3. 点击 `Start Tracking`。
+4. 移动 ArUco 或子机器人。
+5. 观察 RC override 是否方向合理。
+6. 点击 STOP。
+
+### 11.3 手动低功率方向验证
+
+1. 确认环境安全。
+2. 切 `STABILIZE`。
+3. Arm。
+4. 每次只点一个方向按钮。
+5. 观察实际运动方向。
+6. 每次动作后点 STOP。
+7. 异常时 Disarm。
+
+当前已按实机修正：
+
+- `Up` 应上浮。
+- `Down` 应下潜。
+
+### 11.4 视觉闭环低功率验证
+
+1. dry-run 正常。
+2. 手动方向验证正常。
+3. 设置 `enable_motion=true`。
+4. 重启 `main.py`。
+5. 连接 Web。
+6. 切 `STABILIZE`。
+7. Arm。
+8. 点击 `Start Tracking`。
+9. 观察 ROV 是否低功率跟踪 ArUco。
+10. 异常立即 STOP / Disarm。
+
+### 11.5 Docking dry-run
+
+1. `enable_motion=false`。
+2. 点击 `Start Tracking`。
+3. 等 Tracking 稳定。
+4. 点击 `Engage Docking`。
+5. 观察 `pre_dock_ready`。
+6. 条件满足后点击 `Confirm`。
+7. 点击 STOP。
+
+## 12. 常见问题
+
+### 12.1 Web 显示连接失败 errno 111
+
+常见原因：
+
+- `main.py` 没有运行。
+- `main.py` 崩溃退出。
+- ROV Host / Port 填错。
+- SurfaceComm 端口不是 `9002`。
+
+检查：
+
+```bash
+ss -ltnp | grep ':9002'
+ss -ltnp | grep ':8080'
+```
+
+### 12.2 页面有视频，但右侧位姿为空
+
+常见原因：
+
+- 还没有点击 `Start Tracking`。
+- 当前没有任务状态。
+- ArUco 没有被有效检测。
+
+处理：
+
+1. 点击 `Start Tracking`。
+2. 确认画面中完整看到 ArUco ID 20。
+3. 观察 Reject 原因和重投影误差。
+
+### 12.3 页面没有视频
+
+常见原因：
+
+- `main.py` 没有运行。
+- 摄像头设备错误。
+- 摄像头被其他程序占用。
+- Web 只启动了页面，但没有连接 ROV 主程序。
+
+处理：
+
+```bash
+ls -l /dev/camera_main
+ls -l /dev/video*
+```
+
+可用 `guvcview -d /dev/videoX` 只做临时检查，检查后关闭 guvcview。
+
+### 12.4 保存配置后没有变化
+
+原因：
+
+- Web 保存配置只写 `config/settings.yaml`。
+- 已经运行中的 `main.py` 不会自动热更新所有任务参数。
+
+处理：
+
+1. 保存配置。
+2. 停止 `main.py`。
+3. 重新运行 `main.py`。
+4. 重新连接 Web。
+
+### 12.5 Start Tracking 后不运动
+
+检查顺序：
+
+1. `enable_motion` 是否为 true。
+2. 保存配置后是否重启了 `main.py`。
+3. Pixhawk 是否已 Arm。
+4. 当前模式是否为 `STABILIZE`。
+5. Output 中 RC override 是否不是全 1500。
+6. STOP / Disarm 是否误触发。
+
+如果日志中显示 `dry_run=True`，说明视觉只在计算控制量，没有发送真实运动输出。
+
+### 12.6 Tracking 后再 Docking 失败
+
+Docking 必须建立在 Tracking 基础上。
+
+正确流程：
+
+```text
+Start Tracking -> 视觉稳定 -> Engage Docking
+```
+
+如果直接点击 `Engage Docking`，会被拒绝。
+
+## 13. 禁止随意操作
+
+除非明确知道影响，不要在现场临时修改：
+
+- RC 通道映射。
+- PWM 上下限。
+- Pixhawk 串口。
+- 波特率。
+- 摄像头标定文件。
+- marker id。
+- marker size。
+- 坐标系方向。
+- 自动 Arm 策略。
+- STOP / Disarm 逻辑。
+
+这些属于硬件安全边界，修改前必须先做代码 review 和 dry-run。
+
+## 14. 快速命令备忘
+
+启动主程序：
+
+```bash
+cd /home/cekong418/rov_project
+if [ -f .venv_linux/bin/activate ]; then source .venv_linux/bin/activate; fi
+PYTHONPATH=. python main.py
+```
+
+启动 Web 上位机：
+
+```bash
+cd /home/cekong418/rov_project
+if [ -f .venv_linux/bin/activate ]; then source .venv_linux/bin/activate; fi
+PYTHONPATH=. python tools/surface_console/app.py --host 0.0.0.0 --port 8080 --rov-host 127.0.0.1 --rov-port 9002
+```
+
+打开页面：
+
+```text
+http://127.0.0.1:8080
+```
+
+或：
+
+```text
+http://Linux小主机IP:8080
+```
+
+检查端口：
+
+```bash
+ss -ltnp | grep ':8080'
+ss -ltnp | grep ':9002'
+```
+
+下水前只读检查：
+
+```bash
+cd /home/cekong418/rov_project
+PYTHONPATH=. python tools/check_runtime_preflight.py
+```

@@ -14,6 +14,7 @@ from modules.comms.pixhawk_comm import PixhawkComm
 from modules.comms.fish_comm import FishComm
 from modules.comms.charging_comm import ChargingComm
 
+from modules.controller.manual_rc import apply_manual_rov_command
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
 from modules.tasks.docking_confirmation import confirm_current_docking_task
@@ -237,36 +238,8 @@ def main():
                 status_update["armed"] = pixhawk.is_armed()
             
             # === 方向控制 (RC override) ===
-            elif rov_cmd == "forward":
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1600
-                rc_state['ch6'] = 1500
-            elif rov_cmd == "backward":
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1400
-                rc_state['ch6'] = 1500
-            elif rov_cmd == "left":
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1400
-            elif rov_cmd == "right":
-                rc_state['ch3'] = 1500
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1600
-            elif rov_cmd == "up":
-                rc_state['ch3'] = 1700
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1500
-            elif rov_cmd == "down":
-                rc_state['ch3'] = 1400
-                rc_state['ch4'] = 1500
-                rc_state['ch5'] = 1500
-                rc_state['ch6'] = 1500
+            elif apply_manual_rov_command(rc_state, rov_cmd):
+                pass
             elif rov_cmd == "stop":
                 reset_manual_rc_state()
                 docking_stop = stop_docking_safely(scheduler, pixhawk, rc_state)

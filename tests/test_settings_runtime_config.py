@@ -2,6 +2,11 @@ import unittest
 import re
 from pathlib import Path
 
+import yaml
+
+from modules.controller.motion_command import MotionCommand
+from modules.controller.rc_override_mapper import RcOverrideMapper
+
 
 class RuntimeSettingsTests(unittest.TestCase):
     def test_vision_tracking_uses_safe_rc_override_defaults(self):
@@ -39,6 +44,19 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn('right: "ch6"', text)
         self.assertIn('up: "ch3"', text)
         self.assertIn('yaw: "ch4"', text)
+
+    def test_visual_rc_override_reverses_vertical_axis_for_current_vehicle(self):
+        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
+        rc_config = config["vision_tracking"]["rc_override"]
+
+        self.assertEqual(rc_config["axis_signs"]["up"], -1.0)
+
+        mapper = RcOverrideMapper(rc_config)
+        up_channels = mapper.map_motion_command(MotionCommand(up_m_s=0.1))
+        down_channels = mapper.map_motion_command(MotionCommand(up_m_s=-0.1))
+
+        self.assertLess(up_channels["ch3"], rc_config["neutral_pwm"])
+        self.assertGreater(down_channels["ch3"], rc_config["neutral_pwm"])
 
 
 if __name__ == "__main__":
