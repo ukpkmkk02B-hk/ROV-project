@@ -77,6 +77,7 @@ class DockingTask:
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
         self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
         self.required_mode = tracking_config.get("required_mode", "GUIDED")
+        self.allow_auto_arm_on_start = bool(tracking_config.get("allow_auto_arm_on_start", False))
         self.rc_mapper = RcOverrideMapper(tracking_config.get("rc_override", {}))
         self.axis_policy = VisualAxisPolicy(
             tracking_config,
@@ -99,6 +100,7 @@ class DockingTask:
         self.last_command = self.tracking_ctrl.neutral_command()
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = {}
+        self.last_failure_reason = ""
         self.pre_dock_ready = False
         self.tracking_ready = False
         self.valid_observation_count = 0
@@ -123,6 +125,8 @@ class DockingTask:
 
                 # 检查并解锁
                 if not self.pixhawk.is_armed():
+                    if not self.allow_auto_arm_on_start:
+                        raise RuntimeError("vehicle_not_armed")
                     self.pixhawk.arm_vehicle()
                     time.sleep(2)  # 等待解锁生效
 
@@ -131,6 +135,7 @@ class DockingTask:
 
             except Exception as e:
                 print(f"[DockingTask] ❌ 启动失败: {e}")
+                self.last_failure_reason = str(e)
                 self.status = "failed"
                 self.state_machine.notify_task_failed(self.name)  # 通知状态机失败
                 return  # 退出start，不继续执行
@@ -143,6 +148,7 @@ class DockingTask:
         self.attempts = 0
         self.tracking_ready = False
         self.pre_dock_ready = False
+        self.last_failure_reason = ""
         self._clear_dock_completion_state()
         self.tracking_ctrl.reset()
         self.status = "running"
@@ -248,6 +254,8 @@ class DockingTask:
             "target_motion_mode": self.target_motion_mode,
             "child_command_mode": self.child_command_mode,
             "enable_motion": self.enable_motion,
+            "allow_auto_arm_on_start": self.allow_auto_arm_on_start,
+            "last_failure_reason": self.last_failure_reason,
             "output_backend": self.output_backend,
             **self.axis_policy.status(),
             "attempts": self.attempts

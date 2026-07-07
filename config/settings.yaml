@@ -120,6 +120,7 @@ vision_tracking:
       derivative_min_dt_s: 0.08
       d_limit: 0.05
   enable_motion: false
+  allow_auto_arm_on_start: false
   output_backend: "rc_override"
   required_mode: "STABILIZE"
   start_charging_after_dock: false

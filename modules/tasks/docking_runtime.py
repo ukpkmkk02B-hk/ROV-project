@@ -36,12 +36,14 @@ def handle_docking_runtime_command(scheduler, rov_cmd, source="surface", pixhawk
             return _rejected("tracking_start", "visual_task_already_running")
         if _has_pending_visual_task(scheduler):
             return _rejected("tracking_start", "visual_task_already_pending")
+        neutral_result = _send_neutral_if_available(pixhawk, rc_state)
         accepted = bool(scheduler.start_task("tracking"))
         return {
             "handled": True,
             "tracking_start": {
                 "accepted": accepted,
                 "reason": "" if accepted else "start_task_failed",
+                **neutral_result,
             },
         }
 
@@ -114,6 +116,8 @@ def handle_docking_runtime_command(scheduler, rov_cmd, source="surface", pixhawk
 
 
 def should_send_manual_rc_state(scheduler):
+    if _has_pending_visual_task(scheduler):
+        return False
     task = current_visual_task(scheduler)
     if task is None:
         return True
@@ -131,6 +135,14 @@ def neutralize_rc_state(rc_state, neutral_pwm=1500):
 def stop_docking_safely(scheduler, pixhawk, rc_state, neutral_pwm=1500):
     task = current_visual_task(scheduler)
     if task is None:
+        if _has_pending_visual_task(scheduler):
+            _clear_pending_visual_tasks(scheduler)
+            neutral_result = _send_neutral_if_available(pixhawk, rc_state, neutral_pwm)
+            return {
+                "accepted": True,
+                "reason": "pending_visual_task_cleared",
+                **neutral_result,
+            }
         return _rejected("visual_stop", "visual_task_not_running")["visual_stop"]
 
     _clear_pending_visual_tasks(scheduler)

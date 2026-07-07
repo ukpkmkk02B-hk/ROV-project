@@ -128,6 +128,26 @@ class DockingRuntimeCommandTests(unittest.TestCase):
         self.assertTrue(result["tracking_start"]["accepted"])
         self.assertEqual(scheduler.start_task_calls, ["tracking"])
 
+    def test_tracking_start_neutralizes_rc_before_queueing_task(self):
+        scheduler = FakeScheduler()
+        pixhawk = FakePixhawk()
+        rc_state = {"ch3": 1700, "ch4": 1520, "ch5": 1600, "ch6": 1400}
+
+        result = handle_docking_runtime_command(
+            scheduler,
+            "tracking start",
+            pixhawk=pixhawk,
+            rc_state=rc_state,
+        )
+
+        neutral = {f"ch{i}": 1500 for i in range(1, 9)}
+        self.assertTrue(result["tracking_start"]["accepted"])
+        self.assertTrue(result["tracking_start"]["neutral_sent"])
+        self.assertEqual(result["tracking_start"]["rc_override"], neutral)
+        self.assertEqual(rc_state, neutral)
+        self.assertEqual(pixhawk.rc_commands, [neutral])
+        self.assertEqual(scheduler.start_task_calls, ["tracking"])
+
     def test_tracking_start_rejects_when_visual_task_is_already_pending(self):
         scheduler = FakeScheduler()
 
@@ -194,6 +214,12 @@ class DockingRuntimeCommandTests(unittest.TestCase):
         )
         self.assertTrue(should_send_manual_rc_state(FakeScheduler({"name": "charging", "instance": object()})))
 
+    def test_manual_rc_output_is_blocked_when_visual_task_is_pending(self):
+        scheduler = FakeScheduler()
+        scheduler.pending_task_names = ["tracking"]
+
+        self.assertFalse(should_send_manual_rc_state(scheduler))
+
     def test_stop_docking_safely_sends_neutral_before_stopping_task(self):
         task = FakeDockingTask(enable_motion=True)
         task.stop = lambda: task.calls.append(("stop", "called"))
@@ -221,6 +247,21 @@ class DockingRuntimeCommandTests(unittest.TestCase):
         self.assertFalse(result["accepted"])
         self.assertEqual(result["reason"], "visual_task_not_running")
         self.assertEqual(pixhawk.rc_commands, [])
+
+    def test_stop_docking_safely_clears_pending_visual_task_before_it_starts(self):
+        scheduler = FakeScheduler()
+        scheduler.pending_task_names = ["tracking"]
+        pixhawk = FakePixhawk()
+        rc_state = {"ch3": 1700, "ch5": 1600}
+
+        result = stop_docking_safely(scheduler, pixhawk, rc_state)
+
+        neutral = {f"ch{i}": 1500 for i in range(1, 9)}
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["reason"], "pending_visual_task_cleared")
+        self.assertEqual(rc_state, neutral)
+        self.assertEqual(pixhawk.rc_commands, [neutral])
+        self.assertEqual(scheduler.pending_task_names, [])
 
     def test_reset_command_resets_scheduler_and_neutralizes_rc(self):
         scheduler = FakeScheduler()

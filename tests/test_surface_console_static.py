@@ -51,6 +51,8 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
 
         self.assertIn("Visual closed-loop motion output", html)
         self.assertIn("not a global manual RC lock", html)
+        self.assertIn("Start Tracking does not auto Arm", html)
+        self.assertIn("not a substitute for STOP or Disarm", html)
         self.assertIn("Restart main.py to apply", js)
 
 
