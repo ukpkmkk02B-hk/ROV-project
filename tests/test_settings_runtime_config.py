@@ -14,7 +14,7 @@ class RuntimeSettingsTests(unittest.TestCase):
 
         self.assertIn("enable_motion: false", text)
         self.assertIn('output_backend: "rc_override"', text)
-        self.assertIn('required_mode: "STABILIZE"', text)
+        self.assertIn('required_mode: "MANUAL"', text)
         self.assertIn('control_mode: "pid"', text)
         self.assertIn('target_motion_mode: "stationary_child"', text)
         self.assertIn('child_command_mode: "disabled"', text)
@@ -57,6 +57,18 @@ class RuntimeSettingsTests(unittest.TestCase):
 
         self.assertLess(up_channels["ch3"], rc_config["neutral_pwm"])
         self.assertGreater(down_channels["ch3"], rc_config["neutral_pwm"])
+
+    def test_visual_rc_override_does_not_drive_roll_or_pitch_inputs(self):
+        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
+        rc_config = config["vision_tracking"]["rc_override"]
+
+        mapper = RcOverrideMapper(rc_config)
+        channels = mapper.map_motion_command(
+            MotionCommand(forward_m_s=0.1, right_m_s=0.1, up_m_s=0.1, yaw_rate_rad_s=0.1)
+        )
+
+        self.assertEqual(channels["ch1"], rc_config["neutral_pwm"])
+        self.assertEqual(channels["ch2"], rc_config["neutral_pwm"])
 
 
 if __name__ == "__main__":

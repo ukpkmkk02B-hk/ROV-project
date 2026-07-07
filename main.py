@@ -14,6 +14,7 @@ from modules.comms.pixhawk_comm import PixhawkComm
 from modules.comms.fish_comm import FishComm
 from modules.comms.charging_comm import ChargingComm
 
+from modules.controller.manual_modes import mode_command_result
 from modules.controller.manual_rc import apply_manual_rov_command
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
@@ -222,54 +223,63 @@ def main():
             # === 模式切换 ===
             if runtime_update.get("handled"):
                 status_update.update({k: v for k, v in runtime_update.items() if k != "handled"})
-            elif rov_cmd in ["MANUAL", "STABILIZE", "ALT_HOLD"]:
-                success = pixhawk.set_mode(rov_cmd)
-                time.sleep(2)
-                status_update["mode_change"] = {"target_mode": rov_cmd, "success": success}
-            
-            # === 上锁/解锁 ===
-            elif rov_cmd == "arm":
-                pixhawk.arm_vehicle()
-                time.sleep(1)
-                status_update["armed"] = pixhawk.is_armed()
-            elif rov_cmd == "disarm":
-                pixhawk.disarm_vehicle()
-                time.sleep(1)
-                status_update["armed"] = pixhawk.is_armed()
-            
-            # === 方向控制 (RC override) ===
-            elif apply_manual_rov_command(rc_state, rov_cmd):
-                pass
-            elif rov_cmd == "stop":
-                reset_manual_rc_state()
-                docking_stop = stop_docking_safely(scheduler, pixhawk, rc_state)
-                if docking_stop.get("accepted"):
-                    status_update["docking_stop"] = docking_stop
-                else:
-                    send_manual_rc_override_safely()
-            
-            elif rov_cmd == "docking start":
-                status_update["docking_start"] = {
-                    "accepted": False,
-                    "reason": "tracking_task_not_running",
-                }
-
-            elif rov_cmd == "docking confirm":
-                status_update["docking_confirm"] = confirm_current_docking_task(scheduler, source="surface")
-
-            elif rov_cmd == "docking stop":
-                reset_manual_rc_state()
-                status_update["docking_stop"] = stop_docking_safely(scheduler, pixhawk, rc_state)
-                print(f"[MAIN]              ⚠️ TINGZHI DUIJIE")
-            
-            elif rov_cmd == "reset":
-                status_update["reset"] = {
-                    "accepted": scheduler.reset_error_state(),
-                }
-                reset_manual_rc_state()
             else:
-                print(f"[MAIN] ⚠️ 未知 ROV 指令: {rov_cmd}")
-           
+                mode_result = mode_command_result(rov_cmd)
+                if mode_result["is_mode_command"]:
+                    if mode_result["accepted"]:
+                        success = pixhawk.set_mode(mode_result["mode"])
+                        time.sleep(2)
+                        status_update["mode_change"] = {"target_mode": mode_result["mode"], "success": success}
+                    else:
+                        status_update["mode_change"] = {
+                            "target_mode": mode_result["mode"],
+                            "success": False,
+                            "reason": mode_result["reason"],
+                        }
+
+                # === 上锁/解锁 ===
+                elif rov_cmd == "arm":
+                    pixhawk.arm_vehicle()
+                    time.sleep(1)
+                    status_update["armed"] = pixhawk.is_armed()
+                elif rov_cmd == "disarm":
+                    pixhawk.disarm_vehicle()
+                    time.sleep(1)
+                    status_update["armed"] = pixhawk.is_armed()
+
+                # === 方向控制 (RC override) ===
+                elif apply_manual_rov_command(rc_state, rov_cmd):
+                    pass
+                elif rov_cmd == "stop":
+                    reset_manual_rc_state()
+                    docking_stop = stop_docking_safely(scheduler, pixhawk, rc_state)
+                    if docking_stop.get("accepted"):
+                        status_update["docking_stop"] = docking_stop
+                    else:
+                        send_manual_rc_override_safely()
+
+                elif rov_cmd == "docking start":
+                    status_update["docking_start"] = {
+                        "accepted": False,
+                        "reason": "tracking_task_not_running",
+                    }
+
+                elif rov_cmd == "docking confirm":
+                    status_update["docking_confirm"] = confirm_current_docking_task(scheduler, source="surface")
+
+                elif rov_cmd == "docking stop":
+                    reset_manual_rc_state()
+                    status_update["docking_stop"] = stop_docking_safely(scheduler, pixhawk, rc_state)
+                    print(f"[MAIN]              ⚠️ TINGZHI DUIJIE")
+
+                elif rov_cmd == "reset":
+                    status_update["reset"] = {
+                        "accepted": scheduler.reset_error_state(),
+                    }
+                    reset_manual_rc_state()
+                else:
+                    print(f"[MAIN] ⚠️ 未知 ROV 指令: {rov_cmd}")
+
             if status_update:
                 surface.send_status(status_update)
 

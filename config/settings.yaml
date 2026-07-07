@@ -122,7 +122,7 @@ vision_tracking:
   enable_motion: false
   allow_auto_arm_on_start: false
   output_backend: "rc_override"
-  required_mode: "STABILIZE"
+  required_mode: "MANUAL"
   start_charging_after_dock: false
   min_pre_dock_valid_frames: 3
   pre_dock_recent_observation_max_age_s: 0.5

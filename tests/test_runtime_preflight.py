@@ -63,7 +63,7 @@ vision_tracking:
   desired_z_m: 0.5
   enable_motion: false
   output_backend: "rc_override"
-  required_mode: "STABILIZE"
+  required_mode: "MANUAL"
   rc_override:
     channels:
       forward: "ch5"
@@ -86,7 +86,7 @@ vision_tracking:
                 "desired_z_m": 0.5,
                 "enable_motion": False,
                 "output_backend": "rc_override",
-                "required_mode": "STABILIZE",
+                "required_mode": "MANUAL",
                 "rc_override": {
                     "channels": {
                         "forward": "ch5",
@@ -117,6 +117,7 @@ vision_tracking:
         self.assertEqual(report["summary"]["marker_type"], "aruco")
         self.assertFalse(report["summary"]["enable_motion"])
         self.assertEqual(report["summary"]["output_backend"], "rc_override")
+        self.assertEqual(report["summary"]["required_mode"], "MANUAL")
         self.assertEqual(report["summary"]["rc_channels"]["forward"], "ch5")
 
     def test_preflight_reports_missing_device_and_dependency_errors(self):

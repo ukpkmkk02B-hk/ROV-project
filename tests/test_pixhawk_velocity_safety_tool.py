@@ -157,6 +157,37 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertEqual(fake_mavutil.connections, [])
 
+    def test_non_manual_set_mode_is_rejected_before_connecting(self):
+        master = FakeMaster()
+        tool, fake_mavutil = import_tool_with_fake_mavutil(master)
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = write_config(tmpdir)
+
+            exit_code = tool.main(
+                [
+                    "--config",
+                    str(config_path),
+                    "--axis",
+                    "forward",
+                    "--value",
+                    "0.03",
+                    "--duration",
+                    "0.01",
+                    "--set-mode",
+                    "GUIDED",
+                    "--send",
+                    "--confirm-motion",
+                ],
+                mavutil_module=fake_mavutil,
+                stdout=io.StringIO(),
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(fake_mavutil.connections, [])
+        self.assertIn("only MANUAL mode is supported", stderr.getvalue())
+
     def test_limits_reject_excessive_linear_yaw_and_duration_values(self):
         master = FakeMaster()
         tool, _ = import_tool_with_fake_mavutil(master)
@@ -228,7 +259,7 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
                     "--duration",
                     "0.01",
                     "--set-mode",
-                    "GUIDED",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
                 ],
@@ -240,15 +271,15 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         text = output.getvalue()
-        self.assertIn("set_mode_requested: GUIDED", text)
+        self.assertIn("set_mode_requested: MANUAL", text)
         self.assertIn("mode_after_set: MANUAL", text)
-        self.assertIn("mode_change_confirmed: false", text)
+        self.assertIn("mode_change_confirmed: true", text)
         self.assertIn("motion_command: axis=yaw value=3.0", text)
         self.assertRegex(text, r"motion_frames_sent: [1-9]\d*")
         self.assertRegex(text, r"neutral_frames_sent: [1-9]\d*")
         self.assertIn("post_mode:", text)
         self.assertIn("post_armed:", text)
-        self.assertEqual(master.mav.mode_commands[0][2], 4)
+        self.assertEqual(master.mav.mode_commands[0][2], 0)
 
     def test_mode_change_diagnostics_report_confirmed_when_mode_updates(self):
         master = FakeMaster()
@@ -258,7 +289,7 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
 
         def set_mode_and_update_flightmode(*args):
             original_set_mode_send(*args)
-            master.flightmode = "GUIDED"
+            master.flightmode = "MANUAL"
 
         master.mav.set_mode_send = set_mode_and_update_flightmode
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -275,7 +306,7 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
                     "--duration",
                     "0.01",
                     "--set-mode",
-                    "GUIDED",
+                    "MANUAL",
                     "--send",
                     "--confirm-motion",
                 ],
@@ -287,7 +318,7 @@ class PixhawkVelocitySafetyToolTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         text = output.getvalue()
-        self.assertIn("mode_after_set: GUIDED", text)
+        self.assertIn("mode_after_set: MANUAL", text)
         self.assertIn("mode_change_confirmed: true", text)
 
 

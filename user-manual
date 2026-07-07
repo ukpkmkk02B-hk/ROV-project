@@ -196,7 +196,7 @@ ip addr
 推荐点击顺序：
 
 1. 确认 ROV 在水中且周围安全。
-2. 点击 `STABILIZE`。
+2. 点击 `MANUAL`。
 3. 点击 `解锁 / Arm`。
 4. 点击 `上升 / Up`，观察是否上浮。
 5. 点击 `STOP`。
@@ -246,7 +246,7 @@ ip addr
 6. 看到保存成功提示后，回到终端停止 `main.py`。
 7. 重新运行 `main.py`。
 8. 回到上位机，点击 `连接 / Connect`。
-9. 点击 `STABILIZE`。
+9. 点击 `MANUAL`。
 10. 点击 `解锁 / Arm`。
 11. 点击 `开始跟踪 / Start Tracking`。
 12. 观察 ROV 是否低功率跟踪 ArUco。
@@ -436,13 +436,13 @@ Output 面板显示：
 - 视觉闭环 `up_m_s > 0`：`ch3 < 1500`
 - 视觉闭环 `up_m_s < 0`：`ch3 > 1500`
 
+当前代码不会直接给四个垂向螺旋桨分别写 PWM。视觉算法输出的是飞控 RC override 输入，其中升沉只使用 `ch3`，`ch1/ch2` 保持 1500，不输出横滚/俯仰控制量。四个垂向推进器的最终电机输出由 Pixhawk / ArduSub 混控完成。
+
 ## 5. Motion Safety 区域
 
 按钮：
 
-- `STABILIZE`：切换 Pixhawk 到 STABILIZE。
-- `ALT_HOLD`：切换到 ALT_HOLD。
-- `MANUAL`：切换到 MANUAL。
+- `MANUAL`：切换 Pixhawk 到 MANUAL。当前只能使用 MANUAL，STABILIZE / ALT_HOLD / 定深模式不可用。
 - `Arm`：解锁。
 - `Disarm`：上锁。
 - `STOP`：停止当前视觉任务并回中 RC。
@@ -451,7 +451,7 @@ Output 面板显示：
 
 1. 先连接 Web。
 2. 先确认 STOP 可用。
-3. 切换到 `STABILIZE`。
+3. 切换到 `MANUAL`。
 4. 需要真实运动前，再手动点击 `Arm`。
 5. 任何异常先点 STOP，再点 Disarm。
 
@@ -526,7 +526,7 @@ enable_motion: false
 3. 点击 `Save Config`。
 4. 重启 `main.py`。
 5. 重新连接 Web。
-6. 确认模式为 `STABILIZE`。
+6. 确认模式为 `MANUAL`。
 7. 手动点击 `Arm`。
 8. 点击 `Start Tracking`。
 9. 观察 ROV 是否按视觉误差低功率修正。
@@ -737,7 +737,7 @@ Docking 区提供：
 ### 11.3 手动低功率方向验证
 
 1. 确认环境安全。
-2. 切 `STABILIZE`。
+2. 切 `MANUAL`。
 3. Arm。
 4. 每次只点一个方向按钮。
 5. 观察实际运动方向。
@@ -756,7 +756,7 @@ Docking 区提供：
 3. 设置 `enable_motion=true`。
 4. 重启 `main.py`。
 5. 连接 Web。
-6. 切 `STABILIZE`。
+6. 切 `MANUAL`。
 7. Arm。
 8. 点击 `Start Tracking`。
 9. 观察 ROV 是否低功率跟踪 ArUco。
@@ -843,7 +843,7 @@ ls -l /dev/video*
 1. `enable_motion` 是否为 true。
 2. 保存配置后是否重启了 `main.py`。
 3. Pixhawk 是否已 Arm。
-4. 当前模式是否为 `STABILIZE`。
+4. 当前模式是否为 `MANUAL`。
 5. Output 中 RC override 是否不是全 1500。
 6. STOP / Disarm 是否误触发。
 

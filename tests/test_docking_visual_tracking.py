@@ -379,20 +379,55 @@ class DockingVisualTrackingTests(unittest.TestCase):
 
         self.assertFalse(task.get_status()["pre_dock_ready"])
 
-    def test_motion_enabled_uses_configured_required_mode(self):
+    def test_motion_enabled_uses_manual_required_mode(self):
         module = import_docking_with_stubs()
         pixhawk = FakePixhawk()
         task = module.DockingTask(
             camera=FakeCamera([]),
             pixhawk=pixhawk,
             state_machine=FakeStateMachine(),
-            tracking_config={"enable_motion": True, "required_mode": "GUIDED"},
+            tracking_config={"enable_motion": True, "required_mode": "MANUAL"},
         )
 
         with patch("builtins.print"):
             task.start()
 
-        self.assertEqual(pixhawk.mode_calls, ["GUIDED"])
+        self.assertEqual(pixhawk.mode_calls, ["MANUAL"])
+
+    def test_motion_enabled_rejects_non_manual_required_mode_before_mode_change_or_arm(self):
+        module = import_docking_with_stubs()
+
+        class OrderedPixhawk(FakePixhawk):
+            def __init__(self):
+                super().__init__()
+                self.events = []
+
+            def arm_vehicle(self):
+                self.events.append("arm")
+                super().arm_vehicle()
+
+            def set_mode(self, mode):
+                self.events.append(f"mode:{mode}")
+                return super().set_mode(mode)
+
+        pixhawk = OrderedPixhawk()
+        state_machine = FakeStateMachine()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=state_machine,
+            tracking_config={"enable_motion": True, "required_mode": "STABILIZE"},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+
+        self.assertEqual(task.status, "failed")
+        self.assertEqual(pixhawk.events, [])
+        self.assertEqual(pixhawk.mode_calls, [])
+        self.assertEqual(pixhawk.arm_calls, 0)
+        self.assertEqual(task.last_failure_reason, "unsupported_required_mode: STABILIZE")
+        self.assertIn(("failed", "docking"), state_machine.events)
 
     def test_motion_enabled_requires_manual_arm_by_default(self):
         module = import_docking_with_stubs()
@@ -421,15 +456,15 @@ class DockingVisualTrackingTests(unittest.TestCase):
             camera=FakeCamera([]),
             pixhawk=pixhawk,
             state_machine=state_machine,
-            tracking_config={"enable_motion": True, "required_mode": "STABILIZE"},
+            tracking_config={"enable_motion": True, "required_mode": "MANUAL"},
         )
 
         with patch("builtins.print"), patch.object(module.time, "sleep", return_value=None):
             task.start()
 
         self.assertEqual(task.status, "failed")
-        self.assertEqual(pixhawk.events, ["mode:STABILIZE"])
-        self.assertEqual(pixhawk.mode_calls, ["STABILIZE"])
+        self.assertEqual(pixhawk.events, ["mode:MANUAL"])
+        self.assertEqual(pixhawk.mode_calls, ["MANUAL"])
         self.assertEqual(pixhawk.arm_calls, 0)
         self.assertIn(("failed", "docking"), state_machine.events)
         self.assertEqual(task.last_failure_reason, "vehicle_not_armed")
@@ -462,7 +497,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": True,
-                "required_mode": "STABILIZE",
+                "required_mode": "MANUAL",
                 "allow_auto_arm_on_start": True,
             },
         )
@@ -470,8 +505,8 @@ class DockingVisualTrackingTests(unittest.TestCase):
         with patch("builtins.print"), patch.object(module.time, "sleep", return_value=None):
             task.start()
 
-        self.assertEqual(pixhawk.events, ["mode:STABILIZE", "arm"])
-        self.assertEqual(pixhawk.mode_calls, ["STABILIZE"])
+        self.assertEqual(pixhawk.events, ["mode:MANUAL", "arm"])
+        self.assertEqual(pixhawk.mode_calls, ["MANUAL"])
         self.assertEqual(pixhawk.arm_calls, 1)
 
     def test_rc_override_backend_requires_explicit_mapping_before_motion(self):

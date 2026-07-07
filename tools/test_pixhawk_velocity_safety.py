@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - Linux runtime should provide pymavlink
     mavutil = None
 
 from modules.comms.mavlink_velocity import send_body_velocity_command
+from modules.controller.manual_modes import normalize_supported_mode
 from modules.controller.motion_command import MotionCommand
 
 
@@ -255,6 +256,8 @@ def validate_request(args):
         raise ValueError("--send requires --axis")
     if args.value is None:
         raise ValueError("--send requires --value")
+    if args.set_mode:
+        args.set_mode = normalize_supported_mode(args.set_mode)
     validate_duration(args.duration)
     build_motion_command(args.axis, args.value)
 

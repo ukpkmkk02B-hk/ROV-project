@@ -30,6 +30,7 @@ class DockingTask:
     MAX_SEARCH_TIME = 3.0  # 最大搜索时间（秒）
     SEARCH_SPEED = 0.2  # 搜索旋转速度 (rad/s)
     VALID_OUTPUT_BACKENDS = {"mavlink_velocity", "rc_override"}
+    SUPPORTED_REQUIRED_MODE = "MANUAL"
     MISSION_TRACKING = "tracking"
     MISSION_DOCKING = "docking"
     VALID_MISSIONS = {MISSION_TRACKING, MISSION_DOCKING}
@@ -76,7 +77,7 @@ class DockingTask:
         )
         self.enable_motion = bool(tracking_config.get("enable_motion", False))
         self.output_backend = tracking_config.get("output_backend", "mavlink_velocity")
-        self.required_mode = tracking_config.get("required_mode", "GUIDED")
+        self.required_mode = str(tracking_config.get("required_mode", self.SUPPORTED_REQUIRED_MODE)).upper()
         self.allow_auto_arm_on_start = bool(tracking_config.get("allow_auto_arm_on_start", False))
         self.rc_mapper = RcOverrideMapper(tracking_config.get("rc_override", {}))
         self.axis_policy = VisualAxisPolicy(
@@ -117,9 +118,11 @@ class DockingTask:
         """开始对接任务"""
         if self.enable_motion:
             try:
+                if self.required_mode != self.SUPPORTED_REQUIRED_MODE:
+                    raise RuntimeError(f"unsupported_required_mode: {self.required_mode}")
                 self._validate_motion_output_config()
 
-                # 设置飞控模式，仅 enable_motion=true 时执行；先确认模式再解锁。
+                # 设置飞控模式，仅 enable_motion=true 时执行；当前硬件只允许 MANUAL。
                 if not self.pixhawk.set_mode(self.required_mode):
                     raise RuntimeError("飞控模式切换失败")
 

@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 
+from modules.controller.manual_modes import normalize_supported_mode
 from tools.test_pixhawk_velocity_safety import (
     connect_pixhawk,
     load_pixhawk_config,
@@ -155,6 +156,8 @@ def validate_request(args):
         raise ValueError("--send requires --axis")
     if args.pwm_offset is None:
         raise ValueError("--send requires --pwm-offset")
+    if args.set_mode:
+        args.set_mode = normalize_supported_mode(args.set_mode)
     validate_duration(args.duration)
     build_override_channels(args.axis, args.pwm_offset)
 

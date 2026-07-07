@@ -12,8 +12,6 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         self.assertEqual(
             commands,
             {
-                "STABILIZE",
-                "ALT_HOLD",
                 "MANUAL",
                 "arm",
                 "disarm",
@@ -53,6 +51,10 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         self.assertIn("not a global manual RC lock", html)
         self.assertIn("Start Tracking does not auto Arm", html)
         self.assertIn("not a substitute for STOP or Disarm", html)
+        self.assertIn("当前仅支持 MANUAL", html)
+        self.assertIn("Only MANUAL mode is supported", html)
+        self.assertNotIn('data-rov="STABILIZE"', html)
+        self.assertNotIn('data-rov="ALT_HOLD"', html)
         self.assertIn("Restart main.py to apply", js)
 
 
