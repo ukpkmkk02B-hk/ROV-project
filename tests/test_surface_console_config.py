@@ -35,10 +35,13 @@ vision_tracking:
   pid:
     forward:
       kp: 0.4
+      output_limit: 0.4
     right:
       kp: 0.4
+      output_limit: 0.4
     up:
       kp: 0.3
+      output_limit: 0.4
     yaw:
       kp: 0.5
   rc_override:
@@ -73,6 +76,9 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["pid.right.kp"], 0.4)
         self.assertEqual(values["pid.up.kp"], 0.3)
         self.assertEqual(values["pid.yaw.kp"], 0.5)
+        self.assertEqual(values["pid.forward.output_limit"], 0.4)
+        self.assertEqual(values["pid.right.output_limit"], 0.4)
+        self.assertEqual(values["pid.up.output_limit"], 0.4)
         self.assertEqual(values["rc_override.pwm_per_m_s"], 250)
         self.assertEqual(values["rc_override.pwm_per_rad_s"], 120)
         self.assertEqual(values["rc_override.min_active_pwm_offset"], 30)
@@ -98,6 +104,9 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                     "pid.right.kp": 0.22,
                     "pid.up.kp": 0.23,
                     "pid.yaw.kp": 0.24,
+                    "pid.forward.output_limit": 0.61,
+                    "pid.right.output_limit": 0.62,
+                    "pid.up.output_limit": 0.63,
                     "rc_override.pwm_per_m_s": 180.0,
                     "rc_override.pwm_per_rad_s": 90.0,
                     "rc_override.min_active_pwm_offset": 40.0,
@@ -113,6 +122,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(updated["pre_align_axis_mode"], "lock_horizontal")
         self.assertEqual(updated["camera_to_body.yaw_offset_deg"], -88.0)
         self.assertEqual(updated["pid.forward.kp"], 0.21)
+        self.assertEqual(updated["pid.forward.output_limit"], 0.61)
         self.assertEqual(updated["rc_override.pwm_per_m_s"], 180.0)
         self.assertEqual(updated["rc_override.min_active_pwm_offset"], 40.0)
         self.assertEqual(updated["enable_motion"], True)
@@ -125,6 +135,9 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertIn("max_reprojection_error_px: 3.5", text)
         self.assertIn("yaw_offset_deg: -88.0", text)
         self.assertIn("kp: 0.21", text)
+        self.assertIn("output_limit: 0.61", text)
+        self.assertIn("output_limit: 0.62", text)
+        self.assertIn("output_limit: 0.63", text)
         self.assertIn("pwm_per_m_s: 180.0", text)
         self.assertIn("pwm_per_rad_s: 90.0", text)
         self.assertIn("min_active_pwm_offset: 40.0", text)
@@ -151,6 +164,39 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                 update_console_config(path, {"tracking_vertical_mode": "alt_hold"})
             with self.assertRaises(ValueError):
                 update_console_config(path, {"pre_align_axis_mode": "drift"})
+
+    def test_velocity_limit_fields_allow_one_meter_per_second_but_no_more(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "settings.yaml"
+            path.write_text(SAMPLE_SETTINGS, encoding="utf-8")
+
+            updated = update_console_config(
+                path,
+                {
+                    "max_v_m_s": 1.0,
+                    "pre_align_max_v_m_s": 1.0,
+                    "pid.forward.output_limit": 1.0,
+                    "pid.right.output_limit": 1.0,
+                    "pid.up.output_limit": 1.0,
+                },
+            )
+
+            self.assertEqual(updated["max_v_m_s"], 1.0)
+            self.assertEqual(updated["pre_align_max_v_m_s"], 1.0)
+            self.assertEqual(updated["pid.forward.output_limit"], 1.0)
+            self.assertEqual(updated["pid.right.output_limit"], 1.0)
+            self.assertEqual(updated["pid.up.output_limit"], 1.0)
+
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"max_v_m_s": 1.01})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_max_v_m_s": 1.01})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pid.forward.output_limit": 1.01})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pid.right.output_limit": 1.01})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pid.up.output_limit": 1.01})
 
 
 if __name__ == "__main__":

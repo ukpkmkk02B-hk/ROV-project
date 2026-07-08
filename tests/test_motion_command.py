@@ -212,6 +212,26 @@ class RcOverrideMapperTests(unittest.TestCase):
         self.assertLess(move_right["ch6"], 1500)
         self.assertGreater(move_left["ch6"], 1500)
 
+    def test_mapper_reverses_forward_axis_when_current_vehicle_requires_it(self):
+        mapper = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "min_active_pwm_offset": 30,
+                "axis_signs": {"forward": -1.0},
+            }
+        )
+
+        move_forward = mapper.map_motion_command(MotionCommand(forward_m_s=0.1))
+        move_backward = mapper.map_motion_command(MotionCommand(forward_m_s=-0.1))
+
+        self.assertLess(move_forward["ch5"], 1500)
+        self.assertGreater(move_backward["ch5"], 1500)
+
 
 if __name__ == "__main__":
     unittest.main()

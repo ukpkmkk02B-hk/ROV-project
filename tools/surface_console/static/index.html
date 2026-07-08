@@ -290,7 +290,7 @@
                 <legend>跟踪 / Tracking</legend>
                 <div class="config-grid">
                   <label><span>目标距离 / desired_z_m</span><input name="desired_z_m" type="number" step="0.01"></label>
-                  <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01"></label>
+                  <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01" max="1.0"></label>
                   <label><span>最大偏航角速度 / max_yaw_rate_deg_s</span><input name="max_yaw_rate_deg_s" type="number" step="0.1"></label>
                   <label><span>位置死区 / control_deadband_m</span><input name="control_deadband_m" type="number" step="0.001"></label>
                   <label><span>偏航死区 / yaw_deadband_deg</span><input name="yaw_deadband_deg" type="number" step="0.1"></label>
@@ -317,7 +317,7 @@
                     </select>
                   </label>
                   <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
-                  <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01"></label>
+                  <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01" max="1.0"></label>
                   <label><span>预对接最大偏航 / pre_align_max_yaw_rate_deg_s</span><input name="pre_align_max_yaw_rate_deg_s" type="number" step="0.1"></label>
                   <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
                   <label><span>最近观测窗口 / recent_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
@@ -343,6 +343,9 @@
                   <label><span>横向 P / pid.right.kp</span><input name="pid.right.kp" type="number" step="0.01"></label>
                   <label><span>升沉 P / pid.up.kp</span><input name="pid.up.kp" type="number" step="0.01"></label>
                   <label><span>偏航 P / pid.yaw.kp</span><input name="pid.yaw.kp" type="number" step="0.01"></label>
+                  <label><span>前后限幅 / pid.forward.output_limit</span><input name="pid.forward.output_limit" type="number" step="0.01" max="1.0"></label>
+                  <label><span>横向限幅 / pid.right.output_limit</span><input name="pid.right.output_limit" type="number" step="0.01" max="1.0"></label>
+                  <label><span>升沉限幅 / pid.up.output_limit</span><input name="pid.up.output_limit" type="number" step="0.01" max="1.0"></label>
                 </div>
               </fieldset>
 

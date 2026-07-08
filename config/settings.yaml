@@ -140,6 +140,7 @@ vision_tracking:
       up: "ch3"
       yaw: "ch4"
     axis_signs:
+      forward: -1.0
       right: -1.0
       up: -1.0
   pre_dock_position_tolerance_m: 0.05

@@ -154,6 +154,9 @@ class DockingTask:
         self.last_failure_reason = ""
         self._clear_dock_completion_state()
         self.tracking_ctrl.reset()
+        self.estimator.reset()
+        self.valid_observation_count = 0
+        self.last_valid_observation_time = None
         self.status = "running"
         
         # 通知状态机任务已开始
@@ -201,12 +204,12 @@ class DockingTask:
                 self.filtered_state = self.estimator.update(pose, pose.get("timestamp", now))
                 self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=True, now=now)
             else:
+                if not self._camera_reports_target_lost():
+                    return self._handle_no_new_pose(now)
                 self.lost_counter += 1
                 print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 次丢失目标")
-                self.filtered_state = self.estimator.predict(now)
-                self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=False, now=now)
-                if self.filtered_state.get("status") == "lost":
-                    return self._handle_no_target()
+                self.filtered_state = self._lost_state(now)
+                return self._handle_no_target()
 
             print(f"[DockingTask] 📍 当前阶段: {self.stage}")
             print(f"[DockingTask] 📸 目标位姿: {pose or self.filtered_state}")
@@ -293,27 +296,84 @@ class DockingTask:
         self.pre_dock_ready = False
         self.tracking_ready = False
         self.tracking_ctrl.reset()
+        self.estimator.reset()
+        self.valid_observation_count = 0
+        self.last_valid_observation_time = None
         self.last_command = self.tracking_ctrl.neutral_command()
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
-        self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
-        if self.enable_motion:
-            self._send_motion_command(self.last_command)
-
-        if self.stage == self.STATE_SEARCH:
-            # 检查搜索超时
-            current_time = time.time()
-            if not self.search_start_time:
-                self.search_start_time = current_time
-                print("[DockingTask] 🔍 开始搜索目标...")
-            elif current_time - self.search_start_time > self.MAX_SEARCH_TIME:
-                print("[DockingTask] ⏰ 搜索超时，尝试重置")
-                self.reset()
-            print(current_time)
+        if self.output_backend == "rc_override" and self.rc_mapper.enabled:
+            self.last_rc_override = self.rc_mapper.neutral_channels()
         else:
-            # 对接过程中目标丢失，退回搜索状态
-            print("[DockingTask] ⚠️ 目标丢失! 返回搜索")
-            self.stage = self.STATE_SEARCH
-            self.search_start_time = time.time()
+            self.last_rc_override = self.rc_mapper.map_motion_command(self.last_command)
+        if self.enable_motion:
+            self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
+
+        if self.mission_mode == self.MISSION_DOCKING:
+            print("[DockingTask] Target lost during docking; downgrade to tracking")
+            self.mission_mode = self.MISSION_TRACKING
+            self.name = self.MISSION_TRACKING
+            promote = getattr(self.state_machine, "promote_current_task", None)
+            if promote:
+                promote(self.MISSION_TRACKING)
+
+        if self.stage != self.STATE_SEARCH:
+            print("[DockingTask] Target lost; neutral output and wait for reacquire")
+        self.stage = self.STATE_SEARCH
+        self.search_start_time = None
+        return
+
+    def _camera_reports_target_lost(self):
+        diagnostics = getattr(self.camera, "get_diagnostics", None)
+        if callable(diagnostics):
+            try:
+                reject_reason = str((diagnostics() or {}).get("reject_reason", ""))
+                if reject_reason in {"capture_failed", "camera_open_failed"}:
+                    return True
+            except Exception:
+                pass
+
+        target_lost = getattr(self.camera, "target_lost", None)
+        if callable(target_lost):
+            try:
+                return bool(target_lost())
+            except Exception:
+                pass
+
+        target_detected = getattr(self.camera, "target_detected", None)
+        if callable(target_detected):
+            try:
+                return not bool(target_detected())
+            except Exception:
+                pass
+
+        return True
+
+    def _handle_no_new_pose(self, now):
+        if self.filtered_state:
+            self.filtered_state = self._annotate_state(
+                self.filtered_state,
+                has_valid_observation=False,
+                now=now,
+            )
+            if not self.filtered_state.get("has_recent_valid_observation"):
+                self.pre_dock_ready = False
+
+        if self.enable_motion:
+            self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
+
+    def _lost_state(self, now):
+        state = {
+            "status": "lost",
+            "lost_frames": self.lost_counter,
+            "timestamp": float(now),
+        }
+        state = self._annotate_state(state, has_valid_observation=False, now=now)
+        state["status"] = "lost"
+        state["has_recent_valid_observation"] = False
+        state["latest_pose_age_s"] = ""
+        state["valid_observation_count"] = 0
+        state["pre_dock_valid_frame_count"] = 0
+        return state
 
     def _track(self, state):
         """跟踪阶段：计算控制量，默认dry-run不下发推进控制。"""

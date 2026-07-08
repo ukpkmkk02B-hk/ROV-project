@@ -184,6 +184,15 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
         self.assertEqual(channels["ch6"], 1470)
         self.assertEqual(channels["ch5"], 1500)
 
+    def test_forward_axis_uses_current_vehicle_direction(self):
+        master = FakeMaster()
+        tool, _ = import_tool_with_fake_mavutil(master)
+
+        channels = tool.build_override_channels("forward", 30)
+
+        self.assertEqual(channels["ch5"], 1470)
+        self.assertEqual(channels["ch6"], 1500)
+
     def test_forward_send_path_sends_axis_pwm_then_neutral(self):
         master = FakeMaster()
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)
@@ -216,7 +225,7 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
         last = master.mav.rc_overrides[-1]
         self.assertEqual(first[0], master.target_system)
         self.assertEqual(first[1], master.target_component)
-        self.assertEqual(first[6], 1530)
+        self.assertEqual(first[6], 1470)
         self.assertEqual(last[2:], (1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500))
         text = output.getvalue()
         self.assertIn("rc_override: axis=forward pwm_offset=30", text)

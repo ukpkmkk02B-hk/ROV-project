@@ -2,15 +2,49 @@ import unittest
 import re
 from pathlib import Path
 
-import yaml
-
 from modules.controller.motion_command import MotionCommand
 from modules.controller.rc_override_mapper import RcOverrideMapper
 
 
+def read_settings_text():
+    return Path("config/settings.yaml").read_text(encoding="utf-8")
+
+
+def runtime_rc_override_config():
+    text = read_settings_text()
+    required_lines = [
+        "    enabled: true",
+        "    neutral_pwm: 1500",
+        "    min_pwm: 1400",
+        "    max_pwm: 1600",
+        "    pwm_per_m_s: 250",
+        "    pwm_per_rad_s: 120",
+        '      forward: "ch5"',
+        '      right: "ch6"',
+        '      up: "ch3"',
+        '      yaw: "ch4"',
+        "      forward: -1.0",
+        "      right: -1.0",
+        "      up: -1.0",
+    ]
+    missing = [line for line in required_lines if line not in text]
+    if missing:
+        raise AssertionError(f"settings.yaml missing expected rc_override lines: {missing}")
+    return {
+        "enabled": True,
+        "neutral_pwm": 1500,
+        "min_pwm": 1400,
+        "max_pwm": 1600,
+        "pwm_per_m_s": 250,
+        "pwm_per_rad_s": 120,
+        "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+        "axis_signs": {"forward": -1.0, "right": -1.0, "up": -1.0},
+    }
+
+
 class RuntimeSettingsTests(unittest.TestCase):
     def test_vision_tracking_uses_safe_rc_override_defaults(self):
-        text = Path("config/settings.yaml").read_text(encoding="utf-8")
+        text = read_settings_text()
 
         self.assertIn("enable_motion: false", text)
         self.assertIn('output_backend: "rc_override"', text)
@@ -44,11 +78,11 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn('right: "ch6"', text)
         self.assertIn('up: "ch3"', text)
         self.assertIn('yaw: "ch4"', text)
+        self.assertIn("      forward: -1.0", text)
         self.assertIn("min_active_pwm_offset: 30", text)
 
     def test_visual_rc_override_reverses_vertical_axis_for_current_vehicle(self):
-        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
-        rc_config = config["vision_tracking"]["rc_override"]
+        rc_config = runtime_rc_override_config()
 
         self.assertEqual(rc_config["axis_signs"]["up"], -1.0)
 
@@ -60,8 +94,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertGreater(down_channels["ch3"], rc_config["neutral_pwm"])
 
     def test_visual_rc_override_reverses_lateral_axis_for_current_vehicle(self):
-        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
-        rc_config = config["vision_tracking"]["rc_override"]
+        rc_config = runtime_rc_override_config()
 
         self.assertEqual(rc_config["axis_signs"]["right"], -1.0)
 
@@ -72,9 +105,20 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertLess(right_channels["ch6"], rc_config["neutral_pwm"])
         self.assertGreater(left_channels["ch6"], rc_config["neutral_pwm"])
 
+    def test_visual_rc_override_reverses_forward_axis_for_current_vehicle(self):
+        rc_config = runtime_rc_override_config()
+
+        self.assertEqual(rc_config["axis_signs"]["forward"], -1.0)
+
+        mapper = RcOverrideMapper(rc_config)
+        forward_channels = mapper.map_motion_command(MotionCommand(forward_m_s=0.1))
+        backward_channels = mapper.map_motion_command(MotionCommand(forward_m_s=-0.1))
+
+        self.assertLess(forward_channels["ch5"], rc_config["neutral_pwm"])
+        self.assertGreater(backward_channels["ch5"], rc_config["neutral_pwm"])
+
     def test_visual_rc_override_does_not_drive_roll_or_pitch_inputs(self):
-        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
-        rc_config = config["vision_tracking"]["rc_override"]
+        rc_config = runtime_rc_override_config()
 
         mapper = RcOverrideMapper(rc_config)
         channels = mapper.map_motion_command(

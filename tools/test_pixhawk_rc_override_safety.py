@@ -29,6 +29,7 @@ AXIS_CHANNELS = {
     "right": "ch6",
 }
 AXIS_SIGNS = {
+    "forward": -1,
     "right": -1,
 }
 
