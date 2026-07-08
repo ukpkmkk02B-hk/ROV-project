@@ -1,5 +1,6 @@
 const state = {
   config: {},
+  configDirty: false,
   hasVideo: false,
   lastFrameTime: null,
 };
@@ -141,7 +142,9 @@ function renderStatus(payload) {
   renderTaskStatus(currentTask, config, rov);
   renderVideoStatus(rov.video || {});
   renderPose(currentTask);
-  fillConfigForm(config);
+  if (!state.configDirty) {
+    fillConfigForm(config);
+  }
 }
 
 function renderConnection(payload, rov) {
@@ -246,6 +249,10 @@ function fillConfigForm(config) {
   }
 }
 
+function markConfigDirty() {
+  state.configDirty = true;
+}
+
 async function refreshStatus() {
   try {
     const payload = await requestJson("/api/status");
@@ -332,6 +339,7 @@ async function saveConfig() {
     body: JSON.stringify({updates, confirm_motion: confirmMotion}),
   });
   state.config = payload.config;
+  state.configDirty = false;
   fillConfigForm(payload.config);
   showToast(
     payload.restart_required
@@ -341,10 +349,20 @@ async function saveConfig() {
   await refreshStatus();
 }
 
+async function reloadConfig() {
+  state.configDirty = false;
+  await refreshStatus();
+}
+
+if (configForm) {
+  configForm.addEventListener("input", markConfigDirty);
+  configForm.addEventListener("change", markConfigDirty);
+}
+
 $("connectBtn").addEventListener("click", () => connectRov().catch(handleUiError));
 $("disconnectBtn").addEventListener("click", () => disconnectRov().catch(handleUiError));
 $("refreshBtn").addEventListener("click", refreshStatus);
-$("reloadConfigBtn").addEventListener("click", refreshStatus);
+$("reloadConfigBtn").addEventListener("click", () => reloadConfig().catch(handleUiError));
 $("saveConfigBtn").addEventListener("click", () => saveConfig().catch(handleUiError));
 
 for (const button of rovButtons) {

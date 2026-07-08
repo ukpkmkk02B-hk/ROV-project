@@ -16,6 +16,7 @@ class RcOverrideMapper:
         self.max_pwm = int(self.config.get("max_pwm", 1600))
         self.pwm_per_m_s = float(self.config.get("pwm_per_m_s", 250))
         self.pwm_per_rad_s = float(self.config.get("pwm_per_rad_s", 200))
+        self.min_active_pwm_offset = abs(float(self.config.get("min_active_pwm_offset", 0)))
         self.axis_signs = dict(self.config.get("axis_signs") or {})
 
     def validate_for_motion(self, require_enabled=False):
@@ -50,8 +51,18 @@ class RcOverrideMapper:
             if not channel:
                 continue
             sign = float(self.axis_signs.get(axis, 1.0))
-            channels[channel] = self._clamp_pwm(self.neutral_pwm + value * gain * sign)
+            offset = self._apply_min_active_offset(value * gain * sign)
+            channels[channel] = self._clamp_pwm(self.neutral_pwm + offset)
         return channels
+
+    def _apply_min_active_offset(self, offset):
+        if offset == 0 or self.min_active_pwm_offset <= 0:
+            return offset
+        if abs(offset) < 0.5:
+            return 0.0
+        if abs(offset) >= self.min_active_pwm_offset:
+            return offset
+        return self.min_active_pwm_offset if offset > 0 else -self.min_active_pwm_offset
 
     def _clamp_pwm(self, value):
         return int(round(max(self.min_pwm, min(self.max_pwm, value))))

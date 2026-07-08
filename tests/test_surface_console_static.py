@@ -53,9 +53,25 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         self.assertIn("not a substitute for STOP or Disarm", html)
         self.assertIn("当前仅支持 MANUAL", html)
         self.assertIn("Only MANUAL mode is supported", html)
+        self.assertIn("rc_override.min_active_pwm_offset", html)
         self.assertNotIn('data-rov="STABILIZE"', html)
         self.assertNotIn('data-rov="ALT_HOLD"', html)
         self.assertIn("Restart main.py to apply", js)
+
+    def test_surface_console_preserves_unsaved_config_edits_during_refresh(self):
+        js = Path("tools/surface_console/static/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("configDirty: false", js)
+        self.assertIn('configForm.addEventListener("input", markConfigDirty)', js)
+        self.assertIn('configForm.addEventListener("change", markConfigDirty)', js)
+        self.assertIn("if (!state.configDirty) {\n    fillConfigForm(config);\n  }", js)
+        self.assertIn("state.configDirty = false;\n  fillConfigForm(payload.config);", js)
+        self.assertIn("async function reloadConfig()", js)
+        self.assertIn(
+            '$("reloadConfigBtn").addEventListener("click", () => reloadConfig().catch(handleUiError));',
+            js,
+        )
+        self.assertNotIn('$("reloadConfigBtn").addEventListener("click", refreshStatus);', js)
 
 
 if __name__ == "__main__":

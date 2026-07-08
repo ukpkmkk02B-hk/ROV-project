@@ -44,6 +44,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn('right: "ch6"', text)
         self.assertIn('up: "ch3"', text)
         self.assertIn('yaw: "ch4"', text)
+        self.assertIn("min_active_pwm_offset: 30", text)
 
     def test_visual_rc_override_reverses_vertical_axis_for_current_vehicle(self):
         config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))

@@ -133,6 +133,7 @@ vision_tracking:
     max_pwm: 1600
     pwm_per_m_s: 250
     pwm_per_rad_s: 120
+    min_active_pwm_offset: 30
     channels:
       forward: "ch5"
       right: "ch6"

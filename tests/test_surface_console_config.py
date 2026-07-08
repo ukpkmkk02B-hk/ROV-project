@@ -46,6 +46,7 @@ vision_tracking:
     neutral_pwm: 1500
     pwm_per_m_s: 250
     pwm_per_rad_s: 120
+    min_active_pwm_offset: 30
 
 surface_comm:
   port: 9002
@@ -74,6 +75,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["pid.yaw.kp"], 0.5)
         self.assertEqual(values["rc_override.pwm_per_m_s"], 250)
         self.assertEqual(values["rc_override.pwm_per_rad_s"], 120)
+        self.assertEqual(values["rc_override.min_active_pwm_offset"], 30)
         self.assertNotIn("device", values)
         self.assertNotIn("marker_type", values)
 
@@ -98,6 +100,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                     "pid.yaw.kp": 0.24,
                     "rc_override.pwm_per_m_s": 180.0,
                     "rc_override.pwm_per_rad_s": 90.0,
+                    "rc_override.min_active_pwm_offset": 40.0,
                     "enable_motion": True,
                 },
                 confirm_motion=True,
@@ -111,6 +114,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(updated["camera_to_body.yaw_offset_deg"], -88.0)
         self.assertEqual(updated["pid.forward.kp"], 0.21)
         self.assertEqual(updated["rc_override.pwm_per_m_s"], 180.0)
+        self.assertEqual(updated["rc_override.min_active_pwm_offset"], 40.0)
         self.assertEqual(updated["enable_motion"], True)
         self.assertIn('device: "/dev/ttl_pixhawk"', text)
         self.assertIn("desired_z_m: 0.5", text)
@@ -123,6 +127,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertIn("kp: 0.21", text)
         self.assertIn("pwm_per_m_s: 180.0", text)
         self.assertIn("pwm_per_rad_s: 90.0", text)
+        self.assertIn("min_active_pwm_offset: 40.0", text)
         self.assertIn("enable_motion: true", text)
 
     def test_update_console_config_rejects_unknown_or_unsafe_enable_motion(self):

@@ -22,6 +22,7 @@ CONFIG_FIELDS = {
     "pid.yaw.kp": {"type": float, "min": 0.0, "max": 5.0},
     "rc_override.pwm_per_m_s": {"type": float, "min": 0.0, "max": 2000.0},
     "rc_override.pwm_per_rad_s": {"type": float, "min": 0.0, "max": 2000.0},
+    "rc_override.min_active_pwm_offset": {"type": float, "min": 0.0, "max": 100.0},
     "enable_motion": {"type": bool},
     "min_pre_dock_valid_frames": {"type": int, "min": 1, "max": 100},
     "pre_dock_recent_observation_max_age_s": {"type": float, "min": 0.05, "max": 5.0},

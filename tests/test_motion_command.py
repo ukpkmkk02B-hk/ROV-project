@@ -115,6 +115,83 @@ class RcOverrideMapperTests(unittest.TestCase):
         self.assertEqual(channels["ch4"], 1600)
         self.assertEqual(channels["ch1"], 1500)
 
+    def test_mapper_applies_min_active_pwm_offset_to_small_nonzero_outputs(self):
+        mapper = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {
+                    "forward": "ch5",
+                    "right": "ch6",
+                    "up": "ch3",
+                    "yaw": "ch4",
+                },
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "pwm_per_rad_s": 120,
+                "min_active_pwm_offset": 30,
+            }
+        )
+
+        channels = mapper.map_motion_command(
+            MotionCommand(forward_m_s=0.02, right_m_s=-0.02, yaw_rate_rad_s=0.1)
+        )
+
+        self.assertEqual(channels["ch5"], 1530)
+        self.assertEqual(channels["ch6"], 1470)
+        self.assertEqual(channels["ch4"], 1530)
+        self.assertEqual(channels["ch3"], 1500)
+
+    def test_mapper_does_not_change_zero_large_or_disabled_min_offset_outputs(self):
+        disabled = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "pwm_per_rad_s": 120,
+                "min_active_pwm_offset": 0,
+            }
+        )
+        active = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "pwm_per_rad_s": 120,
+                "min_active_pwm_offset": 30,
+            }
+        )
+
+        self.assertEqual(disabled.map_motion_command(MotionCommand(forward_m_s=0.02))["ch5"], 1505)
+        self.assertEqual(active.map_motion_command(MotionCommand.neutral())["ch5"], 1500)
+        self.assertEqual(active.map_motion_command(MotionCommand(forward_m_s=0.001))["ch5"], 1500)
+        self.assertEqual(active.map_motion_command(MotionCommand(forward_m_s=0.2))["ch5"], 1550)
+
+    def test_mapper_min_active_pwm_offset_respects_axis_signs(self):
+        mapper = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "min_active_pwm_offset": 30,
+                "axis_signs": {"up": -1.0},
+            }
+        )
+
+        channels = mapper.map_motion_command(MotionCommand(up_m_s=0.02))
+
+        self.assertEqual(channels["ch3"], 1470)
+
 
 if __name__ == "__main__":
     unittest.main()
