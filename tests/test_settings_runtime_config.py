@@ -59,6 +59,19 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertLess(up_channels["ch3"], rc_config["neutral_pwm"])
         self.assertGreater(down_channels["ch3"], rc_config["neutral_pwm"])
 
+    def test_visual_rc_override_reverses_lateral_axis_for_current_vehicle(self):
+        config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
+        rc_config = config["vision_tracking"]["rc_override"]
+
+        self.assertEqual(rc_config["axis_signs"]["right"], -1.0)
+
+        mapper = RcOverrideMapper(rc_config)
+        right_channels = mapper.map_motion_command(MotionCommand(right_m_s=0.1))
+        left_channels = mapper.map_motion_command(MotionCommand(right_m_s=-0.1))
+
+        self.assertLess(right_channels["ch6"], rc_config["neutral_pwm"])
+        self.assertGreater(left_channels["ch6"], rc_config["neutral_pwm"])
+
     def test_visual_rc_override_does_not_drive_roll_or_pitch_inputs(self):
         config = yaml.safe_load(Path("config/settings.yaml").read_text(encoding="utf-8"))
         rc_config = config["vision_tracking"]["rc_override"]

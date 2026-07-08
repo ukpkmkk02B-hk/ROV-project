@@ -175,6 +175,15 @@ class PixhawkRcOverrideSafetyToolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tool.validate_duration(2.1)
 
+    def test_right_axis_uses_current_vehicle_direction(self):
+        master = FakeMaster()
+        tool, _ = import_tool_with_fake_mavutil(master)
+
+        channels = tool.build_override_channels("right", 30)
+
+        self.assertEqual(channels["ch6"], 1470)
+        self.assertEqual(channels["ch5"], 1500)
+
     def test_forward_send_path_sends_axis_pwm_then_neutral(self):
         master = FakeMaster()
         tool, fake_mavutil = import_tool_with_fake_mavutil(master)

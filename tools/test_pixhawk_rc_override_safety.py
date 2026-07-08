@@ -28,6 +28,9 @@ AXIS_CHANNELS = {
     "forward": "ch5",
     "right": "ch6",
 }
+AXIS_SIGNS = {
+    "right": -1,
+}
 
 
 def validate_duration(duration_s):
@@ -52,7 +55,7 @@ def build_override_channels(axis, pwm_offset):
         raise ValueError(f"pwm-offset must be within +/-{MAX_PWM_OFFSET}")
     channels = neutral_channels()
     channel = AXIS_CHANNELS[axis]
-    channels[channel] = NEUTRAL_PWM + pwm_offset
+    channels[channel] = NEUTRAL_PWM + pwm_offset * AXIS_SIGNS.get(axis, 1)
     return channels
 
 
