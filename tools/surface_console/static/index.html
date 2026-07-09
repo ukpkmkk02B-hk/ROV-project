@@ -189,9 +189,13 @@
                   <span>停止跟踪</span>
                   <small>Stop Tracking</small>
                 </button>
+                <button data-rov="tracking mode disabled" type="button">
+                  <span>关闭升沉</span>
+                  <small>Disable Vertical</small>
+                </button>
                 <button data-rov="tracking mode visual_pid" type="button">
                   <span>视觉 PID</span>
-                  <small>Visual PID</small>
+                  <small>Target Distance</small>
                 </button>
                 <button data-rov="tracking capture ch3" type="button">
                   <span>捕获 ch3</span>
@@ -275,6 +279,15 @@
                 <small>Backward</small>
               </button>
               <span></span>
+              <button data-rov="turn_left" type="button">
+                <span>左转</span>
+                <small>Turn Left</small>
+              </button>
+              <span></span>
+              <button data-rov="turn_right" type="button">
+                <span>右转</span>
+                <small>Turn Right</small>
+              </button>
             </div>
           </section>
 
@@ -298,7 +311,8 @@
                   <label>
                     <span>垂向模式 / tracking_vertical_mode</span>
                     <select name="tracking_vertical_mode" data-value-type="string">
-                      <option value="visual_pid">visual_pid</option>
+                      <option value="disabled">disabled</option>
+                      <option value="visual_pid">visual_pid - target distance</option>
                       <option value="hold_captured_ch3">hold_captured_ch3</option>
                     </select>
                   </label>

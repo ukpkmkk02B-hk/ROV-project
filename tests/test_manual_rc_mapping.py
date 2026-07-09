@@ -49,6 +49,21 @@ class ManualRcMappingTests(unittest.TestCase):
         self.assertEqual(rc_state["ch5"], 1500)
         self.assertEqual(rc_state["ch6"], 1500)
 
+    def test_turn_left_and_turn_right_use_yaw_channel_only(self):
+        rc_state = {f"ch{i}": 1500 for i in range(1, 9)}
+
+        self.assertTrue(apply_manual_rov_command(rc_state, "turn_left"))
+        self.assertEqual(rc_state["ch3"], 1500)
+        self.assertEqual(rc_state["ch4"], 1600)
+        self.assertEqual(rc_state["ch5"], 1500)
+        self.assertEqual(rc_state["ch6"], 1500)
+
+        self.assertTrue(apply_manual_rov_command(rc_state, "turn_right"))
+        self.assertEqual(rc_state["ch3"], 1500)
+        self.assertEqual(rc_state["ch4"], 1400)
+        self.assertEqual(rc_state["ch5"], 1500)
+        self.assertEqual(rc_state["ch6"], 1500)
+
     def test_unhandled_command_does_not_change_rc_state(self):
         rc_state = {"ch3": 1400, "ch4": 1520, "ch5": 1600, "ch6": 1490}
 

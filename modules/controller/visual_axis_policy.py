@@ -11,9 +11,11 @@ def _clamp(value, low, high):
 class VisualAxisPolicy:
     """Runtime axis policy for visual tracking and pre-align stages."""
 
+    TRACKING_VERTICAL_DISABLED = "disabled"
     TRACKING_VERTICAL_VISUAL_PID = "visual_pid"
     TRACKING_VERTICAL_HOLD_CH3 = "hold_captured_ch3"
     VALID_TRACKING_VERTICAL_MODES = {
+        TRACKING_VERTICAL_DISABLED,
         TRACKING_VERTICAL_VISUAL_PID,
         TRACKING_VERTICAL_HOLD_CH3,
     }
@@ -37,8 +39,8 @@ class VisualAxisPolicy:
         self.tracking_vertical_rejected_reason = ""
         self.pre_align_mode_rejected_reason = ""
 
-        self.tracking_vertical_mode = self.TRACKING_VERTICAL_VISUAL_PID
-        requested_vertical_mode = str(config.get("tracking_vertical_mode", self.TRACKING_VERTICAL_VISUAL_PID))
+        self.tracking_vertical_mode = self.TRACKING_VERTICAL_DISABLED
+        requested_vertical_mode = str(config.get("tracking_vertical_mode", self.TRACKING_VERTICAL_DISABLED))
         if requested_vertical_mode in self.VALID_TRACKING_VERTICAL_MODES:
             if requested_vertical_mode == self.TRACKING_VERTICAL_HOLD_CH3 and self.captured_hold_ch3_pwm is None:
                 self.tracking_vertical_rejected_reason = "ch3_not_captured"
@@ -102,10 +104,14 @@ class VisualAxisPolicy:
         yaw_rate = motion.yaw_rate_rad_s
 
         vertical_hold_active = False
+        vertical_disabled_active = False
         pre_align_horizontal_scaled = False
         pre_align_horizontal_locked = False
 
-        if self.tracking_vertical_mode == self.TRACKING_VERTICAL_HOLD_CH3:
+        if self.tracking_vertical_mode == self.TRACKING_VERTICAL_DISABLED and not _is_pre_align_stage(stage):
+            up = 0.0
+            vertical_disabled_active = True
+        elif self.tracking_vertical_mode == self.TRACKING_VERTICAL_HOLD_CH3:
             up = 0.0
             vertical_hold_active = True
 
@@ -113,6 +119,7 @@ class VisualAxisPolicy:
             if self.pre_align_axis_mode == self.PRE_ALIGN_LOCK_HORIZONTAL:
                 forward = 0.0
                 right = 0.0
+                up = _clamp(up, -self.pre_align_max_v_m_s, self.pre_align_max_v_m_s)
                 yaw_rate = 0.0
                 pre_align_horizontal_locked = True
             elif self.pre_align_axis_mode == self.PRE_ALIGN_SMALL_CORRECTION:
@@ -126,6 +133,7 @@ class VisualAxisPolicy:
                     -self.pre_align_max_v_m_s,
                     self.pre_align_max_v_m_s,
                 )
+                up = _clamp(up, -self.pre_align_max_v_m_s, self.pre_align_max_v_m_s)
                 yaw_rate = _clamp(
                     yaw_rate * self.pre_align_correction_scale,
                     -self.pre_align_max_yaw_rate_rad_s,
@@ -139,6 +147,7 @@ class VisualAxisPolicy:
         adjusted.update(
             {
                 "vertical_hold_active": vertical_hold_active,
+                "vertical_disabled_active": vertical_disabled_active,
                 "pre_align_horizontal_scaled": pre_align_horizontal_scaled,
                 "pre_align_horizontal_locked": pre_align_horizontal_locked,
             }

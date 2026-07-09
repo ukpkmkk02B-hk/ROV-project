@@ -386,6 +386,7 @@ class DockingTask:
         ready = self.tracking_ctrl.is_pre_dock_ready(state)
         self.tracking_ready = ready
         self.pre_dock_ready = ready if self.mission_mode == self.MISSION_DOCKING else False
+        base_command = self._gate_pre_align_vertical(base_command, state)
         self.last_command = self.axis_policy.apply(base_command, stage=self.stage)
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
         self.last_rc_override = self.axis_policy.apply_rc_override(
@@ -399,11 +400,31 @@ class DockingTask:
         print(f"[tracking] 📸 控制输出: {self.last_command}, dry_run={not self.enable_motion}")
         if self.mission_mode == self.MISSION_TRACKING:
             self.stage = self.STATE_TRACK
+        elif self.mission_mode == self.MISSION_DOCKING:
+            self.stage = self.STATE_PRE_ALIGN
         elif self.pre_dock_ready:
             print("[DockingTask] ✅ 视觉预对准完成")
             self.stage = self.STATE_PRE_ALIGN
         else:
             self.stage = self.STATE_TRACK
+
+    def _gate_pre_align_vertical(self, command, state):
+        command = dict(command or {})
+        if self.mission_mode != self.MISSION_DOCKING or self.stage != self.STATE_PRE_ALIGN:
+            return command
+
+        position_ok = bool(state.get("pre_dock_position_ok"))
+        yaw_ok = bool(state.get("pre_dock_yaw_ok"))
+        vertical_allowed = position_ok and yaw_ok
+        command["pre_align_vertical_allowed"] = vertical_allowed
+        command["pre_align_vertical_gated_reason"] = ""
+        if vertical_allowed:
+            return command
+
+        command["up_m_s"] = 0.0
+        command["vz"] = 0.0
+        command["pre_align_vertical_gated_reason"] = "position_not_centered" if not position_ok else "yaw_not_aligned"
+        return command
 
     def engage_docking(self, source="surface"):
         if self.status != "running":

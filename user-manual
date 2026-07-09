@@ -210,7 +210,11 @@ ip addr
 13. 点击 `STOP`。
 14. 点击 `右移 / Right`，观察是否右移。
 15. 点击 `STOP`。
-16. 全部完成后点击 `上锁 / Disarm`。
+16. 点击 `左转 / Turn Left`，观察是否左转。
+17. 点击 `STOP`。
+18. 点击 `右转 / Turn Right`，观察是否右转。
+19. 点击 `STOP`。
+20. 全部完成后点击 `上锁 / Disarm`。
 
 当前修正后的升沉方向：
 
@@ -467,6 +471,8 @@ Output 面板显示：
 - `Backward`：后退。
 - `Left`：左移。
 - `Right`：右移。
+- `Turn Left`：左转。
+- `Turn Right`：右转。
 - `Up`：上浮。
 - `Down`：下潜。
 - `STOP`：回中并停止。
@@ -484,8 +490,9 @@ Tracking 是视觉跟踪阶段，只负责：
 - 识别 ArUco。
 - 估计位姿。
 - 滤波。
-- 保持目标距离。
-- 控制前后、横向、升沉、偏航。
+- 让 ArUco 尽量保持在摄像头画面中心。
+- 默认控制前后、横向和偏航，不主动控制升沉。
+- 只有手动切到 `Target Distance / visual_pid` 后，Tracking 才会用 `desired_z_m` 参与升沉/距离控制。
 - 输出 dry-run 或真实 RC override。
 
 Tracking 不负责：
@@ -538,19 +545,32 @@ enable_motion: false
 
 - Start Tracking 默认不会自动 Arm。
 - 如果没有手动 Arm，真实运动任务会被拒绝或不会输出有效推进动作。
+- 当前默认 `tracking_vertical_mode=disabled`，所以 Tracking 默认不会上浮或下潜。
+- 需要使用 `desired_z_m` 保持目标距离时，在上位机 Tracking 区点击 `Target Distance`，或在参数区把 `tracking_vertical_mode` 改为 `visual_pid` 后保存并重启 `main.py`。
 
-## 8. 垂向模式：Visual PID 与 Hold ch3
+## 8. 垂向模式：Disable Vertical、Target Distance 与 Hold ch3
 
-Tracking 区有两种垂向策略：
+Tracking 区有三种垂向策略：
 
-### 8.1 Visual PID
+### 8.1 Disable Vertical
+
+`disabled` 是当前默认模式：
+
+- Tracking 不使用视觉 PID 控制升沉。
+- 最终 RC override 中 `ch3` 保持中位，除非你手动操作或切换到其他垂向模式。
+- ArUco 的 `z` 距离仍会显示在 Pose / Body / Output 中，但不会在普通 Tracking 中驱动上浮或下潜。
+- 适合先验证水平跟踪、左右修正和偏航修正。
+
+### 8.2 Target Distance / visual_pid
 
 `visual_pid` 模式下：
 
-- 前后、左右、升沉、偏航全部由视觉 PID 控制。
-- 适合测试完整四轴视觉闭环。
+- Tracking 会使用 `desired_z_m` 作为目标距离。
+- 当前配置中 `desired_z_m` 对应 ArUco 正对摄像头方向的距离误差，并通过升沉通道 `ch3` 输出。
+- 只有确认需要自动保持目标距离时，再点击上位机里的 `Target Distance`。
+- 首次下水不建议一开始就启用该模式，先用 `Disable Vertical` 验证水平跟踪更安全。
 
-### 8.2 Capture ch3 / Hold ch3
+### 8.3 Capture ch3 / Hold ch3
 
 目的：
 
@@ -638,13 +658,13 @@ Docking 区提供：
 
 常用项：
 
-- `desired_z_m`：目标跟踪距离。
+- `desired_z_m`：Target Distance / visual_pid 和 Docking pre-align 使用的目标距离；默认 Tracking disabled 模式不会用它驱动升沉。
 - `max_v_m_s`：视觉输出最大线速度。
 - `max_yaw_rate_deg_s`：最大偏航角速度。
 - `control_deadband_m`：位置死区。
 - `yaw_deadband_deg`：偏航死区。
 - `command_smoothing_alpha`：命令平滑系数。
-- `tracking_vertical_mode`：垂向模式。
+- `tracking_vertical_mode`：垂向模式，当前推荐默认 `disabled`。
 
 建议：
 

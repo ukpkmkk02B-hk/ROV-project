@@ -19,6 +19,18 @@ def base_command():
 
 
 class VisualAxisPolicyTests(unittest.TestCase):
+    def test_default_tracking_vertical_mode_disables_vertical_motion_in_tracking(self):
+        policy = VisualAxisPolicy({})
+
+        adjusted = policy.apply(base_command(), stage="track")
+
+        self.assertAlmostEqual(adjusted["forward_m_s"], 0.4)
+        self.assertAlmostEqual(adjusted["right_m_s"], -0.2)
+        self.assertAlmostEqual(adjusted["up_m_s"], 0.0)
+        self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], 0.30)
+        self.assertEqual(adjusted["tracking_vertical_mode"], "disabled")
+        self.assertTrue(adjusted["vertical_disabled_active"])
+
     def test_visual_pid_full_control_keeps_four_axis_command(self):
         policy = VisualAxisPolicy(
             {
@@ -58,9 +70,9 @@ class VisualAxisPolicyTests(unittest.TestCase):
 
         self.assertFalse(result["accepted"])
         self.assertEqual(result["reason"], "ch3_not_captured")
-        self.assertEqual(policy.status()["tracking_vertical_mode"], "visual_pid")
+        self.assertEqual(policy.status()["tracking_vertical_mode"], "disabled")
 
-    def test_pre_align_small_correction_scales_and_limits_horizontal_axes(self):
+    def test_pre_align_small_correction_scales_and_limits_horizontal_axes_and_vertical_descent(self):
         policy = VisualAxisPolicy(
             {
                 "pre_align_axis_mode": "small_correction",
@@ -74,18 +86,18 @@ class VisualAxisPolicyTests(unittest.TestCase):
 
         self.assertAlmostEqual(adjusted["forward_m_s"], 0.05)
         self.assertAlmostEqual(adjusted["right_m_s"], -0.05)
-        self.assertAlmostEqual(adjusted["up_m_s"], 0.08)
+        self.assertAlmostEqual(adjusted["up_m_s"], 0.05)
         self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], math.radians(3.0))
         self.assertTrue(adjusted["pre_align_horizontal_scaled"])
 
-    def test_pre_align_lock_horizontal_zeroes_forward_right_and_yaw(self):
+    def test_pre_align_lock_horizontal_zeroes_forward_right_yaw_and_limits_vertical(self):
         policy = VisualAxisPolicy({"pre_align_axis_mode": "lock_horizontal"})
 
         adjusted = policy.apply(base_command(), stage="pre_align")
 
         self.assertAlmostEqual(adjusted["forward_m_s"], 0.0)
         self.assertAlmostEqual(adjusted["right_m_s"], 0.0)
-        self.assertAlmostEqual(adjusted["up_m_s"], 0.08)
+        self.assertAlmostEqual(adjusted["up_m_s"], 0.05)
         self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], 0.0)
         self.assertTrue(adjusted["pre_align_horizontal_locked"])
 

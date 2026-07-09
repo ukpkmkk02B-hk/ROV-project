@@ -43,6 +43,10 @@ const LABELS = {
   },
 };
 
+LABELS.verticalMode.disabled = "关闭升沉 / disabled";
+LABELS.verticalMode.visual_pid = "目标距离 / visual_pid";
+LABELS.verticalMode.hold_captured_ch3 = "保持捕获 ch3 / hold_captured_ch3";
+
 const rovButtons = Array.from(document.querySelectorAll("[data-rov]"));
 const configForm = document.getElementById("configForm");
 

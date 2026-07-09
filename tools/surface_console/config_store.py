@@ -11,7 +11,7 @@ CONFIG_FIELDS = {
     "control_deadband_m": {"type": float, "min": 0.0, "max": 0.5},
     "yaw_deadband_deg": {"type": float, "min": 0.0, "max": 30.0},
     "command_smoothing_alpha": {"type": float, "min": 0.0, "max": 1.0},
-    "tracking_vertical_mode": {"type": str, "choices": {"visual_pid", "hold_captured_ch3"}},
+    "tracking_vertical_mode": {"type": str, "choices": {"disabled", "visual_pid", "hold_captured_ch3"}},
     "pre_align_axis_mode": {"type": str, "choices": {"full_control", "small_correction", "lock_horizontal"}},
     "pre_align_correction_scale": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_v_m_s": {"type": float, "min": 0.0, "max": 1.0},

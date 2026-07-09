@@ -297,6 +297,22 @@ input[type="checkbox"] {
   grid-template-columns: repeat(3, minmax(94px, 1fr));
 }
 
+.motion-pad > span {
+  display: none;
+}
+
+.motion-pad [data-rov="turn_left"] {
+  order: 7;
+}
+
+.motion-pad [data-rov="backward"] {
+  order: 8;
+}
+
+.motion-pad [data-rov="turn_right"] {
+  order: 9;
+}
+
 button {
   display: grid;
   place-items: center;

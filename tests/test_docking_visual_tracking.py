@@ -1121,15 +1121,21 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
+                "desired_z_m": 0.5,
                 "pre_align_axis_mode": "lock_horizontal",
+                "camera_to_body": {
+                    "forward_axis": "y",
+                    "right_axis": "x",
+                    "up_axis": "z",
+                    "up_sign": -1.0,
+                },
             },
         )
         state = {
-            "forward_m": 1.0,
-            "right_m": 0.2,
-            "up_m": 0.1,
-            "yaw_error_deg": 10.0,
+            "forward_m": 0.0,
+            "right_m": 0.0,
+            "up_m": -0.8,
+            "yaw_error_deg": 0.0,
             "status": "tracking",
             "timestamp": 10.0,
             "has_recent_valid_observation": True,
@@ -1146,6 +1152,114 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(task.last_command["right_m_s"], 0.0)
         self.assertEqual(task.last_command["yaw_rate_rad_s"], 0.0)
         self.assertNotEqual(task.last_command["up_m_s"], 0.0)
+
+    def test_docking_pre_align_stays_active_while_distance_is_not_ready(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="docking",
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.5,
+                "min_pre_dock_valid_frames": 1,
+                "pre_dock_position_tolerance_m": 0.05,
+                "pre_dock_distance_tolerance_m": 0.05,
+                "pre_dock_yaw_tolerance_deg": 5.0,
+                "pre_align_axis_mode": "small_correction",
+                "pre_align_max_v_m_s": 0.05,
+                "camera_to_body": {
+                    "forward_axis": "y",
+                    "right_axis": "x",
+                    "up_axis": "z",
+                    "up_sign": -1.0,
+                },
+                "control_mode": "pid",
+                "pid": {
+                    "forward": {"kp": 1.0, "output_limit": 0.4},
+                    "right": {"kp": 1.0, "output_limit": 0.4},
+                    "up": {"kp": 1.0, "output_limit": 0.4},
+                    "yaw": {"kp": 1.0, "output_limit_deg_s": 10.0},
+                },
+            },
+        )
+        state = {
+            "forward_m": 0.0,
+            "right_m": 0.0,
+            "up_m": -0.8,
+            "yaw_error_deg": 0.0,
+            "status": "tracking",
+            "timestamp": 10.0,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 1,
+        }
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(state)
+
+        self.assertEqual(task.stage, module.DockingTask.STATE_PRE_ALIGN)
+        self.assertFalse(task.pre_dock_ready)
+        self.assertAlmostEqual(task.last_command["up_m_s"], -0.05)
+        self.assertTrue(task.last_command["pre_align_vertical_allowed"])
+
+    def test_docking_pre_align_gates_vertical_motion_until_centered(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="docking",
+            tracking_config={
+                "enable_motion": False,
+                "desired_z_m": 0.5,
+                "min_pre_dock_valid_frames": 1,
+                "pre_dock_position_tolerance_m": 0.05,
+                "pre_dock_distance_tolerance_m": 0.05,
+                "pre_dock_yaw_tolerance_deg": 5.0,
+                "pre_align_axis_mode": "small_correction",
+                "pre_align_max_v_m_s": 0.05,
+                "camera_to_body": {
+                    "forward_axis": "y",
+                    "right_axis": "x",
+                    "up_axis": "z",
+                    "up_sign": -1.0,
+                },
+                "control_mode": "pid",
+                "pid": {
+                    "forward": {"kp": 1.0, "output_limit": 0.4},
+                    "right": {"kp": 1.0, "output_limit": 0.4},
+                    "up": {"kp": 1.0, "output_limit": 0.4},
+                    "yaw": {"kp": 1.0, "output_limit_deg_s": 10.0},
+                },
+            },
+        )
+        state = {
+            "forward_m": 0.12,
+            "right_m": 0.0,
+            "up_m": -0.8,
+            "yaw_error_deg": 0.0,
+            "status": "tracking",
+            "timestamp": 10.0,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 1,
+        }
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(state)
+
+        self.assertEqual(task.stage, module.DockingTask.STATE_PRE_ALIGN)
+        self.assertFalse(task.pre_dock_ready)
+        self.assertNotEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["up_m_s"], 0.0)
+        self.assertFalse(task.last_command["pre_align_vertical_allowed"])
+        self.assertEqual(task.last_command["pre_align_vertical_gated_reason"], "position_not_centered")
 
     def test_stop_sends_neutral_rc_without_closing_pixhawk_connection(self):
         module = import_docking_with_stubs()

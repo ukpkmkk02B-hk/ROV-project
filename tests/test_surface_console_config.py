@@ -21,7 +21,7 @@ vision_tracking:
   control_deadband_m: 0.01
   yaw_deadband_deg: 1.0
   command_smoothing_alpha: 0.6
-  tracking_vertical_mode: "visual_pid"
+  tracking_vertical_mode: "disabled"
   pre_align_axis_mode: "small_correction"
   pre_align_correction_scale: 0.25
   pre_align_max_v_m_s: 0.05
@@ -67,7 +67,7 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["desired_z_m"], 0.8)
         self.assertEqual(values["enable_motion"], False)
         self.assertEqual(values["min_pre_dock_valid_frames"], 3)
-        self.assertEqual(values["tracking_vertical_mode"], "visual_pid")
+        self.assertEqual(values["tracking_vertical_mode"], "disabled")
         self.assertEqual(values["pre_align_axis_mode"], "small_correction")
         self.assertEqual(values["min_marker_pixel_size_px"], 25.0)
         self.assertEqual(values["max_reprojection_error_px"], 5.0)

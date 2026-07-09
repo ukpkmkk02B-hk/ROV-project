@@ -57,6 +57,8 @@ class VisualTrackingController:
         self.pre_dock_distance_tolerance_m = float(pre_dock_distance_tolerance_m)
         self.pre_dock_yaw_tolerance_deg = float(pre_dock_yaw_tolerance_deg)
         self.camera_to_body = camera_to_body or {}
+        self.forward_target_m = self._axis_target("forward", self.desired_z_m)
+        self.up_target_m = self._axis_target("up", 0.0)
         self.min_pre_dock_valid_frames = int(min_pre_dock_valid_frames)
         self.pre_dock_recent_observation_max_age_s = float(pre_dock_recent_observation_max_age_s)
         self.control_mode = str(control_mode or "p").lower()
@@ -68,9 +70,9 @@ class VisualTrackingController:
 
     def compute_command(self, state):
         state = self._body_error(state)
-        raw_distance_error = float(state["forward_m"]) - self.desired_z_m
+        raw_distance_error = float(state["forward_m"]) - self.forward_target_m
         raw_lateral_error = float(state["right_m"])
-        raw_vertical_error = float(state.get("up_m", 0.0))
+        raw_vertical_error = float(state.get("up_m", 0.0)) - self.up_target_m
         raw_yaw_error_deg = float(state.get("yaw_error_deg", 0.0))
         distance_error = _apply_deadband(raw_distance_error, self.control_deadband_m)
         lateral_error = _apply_deadband(raw_lateral_error, self.control_deadband_m)
@@ -85,6 +87,8 @@ class VisualTrackingController:
             "deadbanded_right_error_m": lateral_error,
             "deadbanded_up_error_m": vertical_error,
             "deadbanded_yaw_error_deg": yaw_error_deg,
+            "forward_target_m": self.forward_target_m,
+            "up_target_m": self.up_target_m,
         }
 
         if self.control_mode == "pid":
@@ -148,12 +152,23 @@ class VisualTrackingController:
             )
 
         state = self._body_error(state)
+        forward_error = abs(float(state["forward_m"]) - self.forward_target_m)
         right = abs(float(state["right_m"]))
-        up = abs(float(state.get("up_m", 0.0)))
-        distance_error = abs(float(state["forward_m"]) - self.desired_z_m)
+        up_error = abs(float(state.get("up_m", 0.0)) - self.up_target_m)
         yaw_error = abs(float(state.get("yaw_error_deg", 0.0)))
 
-        position_ok = right <= self.pre_dock_position_tolerance_m and up <= self.pre_dock_position_tolerance_m
+        if self._distance_axis_is_up():
+            position_ok = (
+                right <= self.pre_dock_position_tolerance_m
+                and forward_error <= self.pre_dock_position_tolerance_m
+            )
+            distance_error = up_error
+        else:
+            position_ok = (
+                right <= self.pre_dock_position_tolerance_m
+                and up_error <= self.pre_dock_position_tolerance_m
+            )
+            distance_error = forward_error
         distance_ok = distance_error <= self.pre_dock_distance_tolerance_m
         yaw_ok = yaw_error <= self.pre_dock_yaw_tolerance_deg
 
@@ -230,6 +245,25 @@ class VisualTrackingController:
         if all(key in state for key in ("forward_m", "right_m", "up_m", "yaw_error_deg")):
             return state
         return camera_state_to_body_error(state, {"camera_to_body": self.camera_to_body})
+
+    def _mapped_axis(self, name, default_axis):
+        return str(self.camera_to_body.get(f"{name}_axis", default_axis)).lower()
+
+    def _distance_axis_is_up(self):
+        return self._mapped_axis("forward", "z") != "z" and self._mapped_axis("up", "y") == "z"
+
+    def _axis_target(self, name, fallback):
+        configured = self.camera_to_body.get(f"{name}_target_m")
+        if configured not in (None, ""):
+            return float(configured)
+        if name == "forward" and self._mapped_axis("forward", "z") != "z":
+            return 0.0
+        if name == "up" and self._distance_axis_is_up():
+            up_sign = _optional_float(self.camera_to_body.get("up_sign"))
+            if up_sign is None:
+                up_sign = 1.0
+            return self.desired_z_m if up_sign >= 0.0 else -self.desired_z_m
+        return float(fallback)
 
     def _compute_pid_command(self, distance_error, lateral_error, vertical_error, yaw_error_deg, timestamp=None):
         errors = {
