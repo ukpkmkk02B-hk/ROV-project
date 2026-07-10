@@ -11,6 +11,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
             "pre_align_target_approach_speed_m_s": 0.03,
             "pre_align_approach_speed_kp": 2000.0,
             "pre_dock_approach_speed_tolerance_m_s": 0.01,
+            "pre_align_close_loss_hold_max_distance_m": 0.15,
         }
         config.update(overrides)
         return DockingVerticalController(config)
@@ -102,7 +103,27 @@ class DockingVerticalControllerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.make_controller(pre_align_buoyancy_hold_pwm=1600.5)
         with self.assertRaises(ValueError):
-            self.make_controller(pre_align_down_pwm_max=1801)
+            self.make_controller(pre_align_buoyancy_hold_pwm=2001, pre_align_down_pwm_max=2000)
+        with self.assertRaises(ValueError):
+            self.make_controller(pre_align_down_pwm_max=2001)
+
+    def test_docking_pwm_configuration_accepts_new_upper_boundary(self):
+        controller = self.make_controller(
+            pre_align_buoyancy_hold_pwm=2000,
+            pre_align_down_pwm_max=2000,
+        )
+
+        self.assertEqual(controller.buoyancy_hold_pwm, 2000)
+        self.assertEqual(controller.down_pwm_max, 2000)
+
+    def test_close_loss_hold_distance_is_exposed_and_range_checked(self):
+        controller = self.make_controller(pre_align_close_loss_hold_max_distance_m=0.12)
+
+        self.assertEqual(controller.status()["pre_align_close_loss_hold_max_distance_m"], 0.12)
+        with self.assertRaises(ValueError):
+            self.make_controller(pre_align_close_loss_hold_max_distance_m=0.04)
+        with self.assertRaises(ValueError):
+            self.make_controller(pre_align_close_loss_hold_max_distance_m=0.51)
 
     def test_post_confirm_hold_reports_and_outputs_exact_hold_pwm(self):
         controller = self.make_controller(pre_align_buoyancy_hold_pwm=1610)

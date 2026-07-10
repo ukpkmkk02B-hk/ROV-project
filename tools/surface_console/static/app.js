@@ -24,6 +24,7 @@ const LABELS = {
     pre_align: "预对准 / pre_align",
     docked: "已对接 / docked",
     docked_hold: "对接浮力保持 / docked_hold",
+    docking_lost_hold: "近距离丢失保持 / docking_lost_hold",
     failed: "失败 / failed",
     running: "运行中 / running",
     completed: "已完成 / completed",
@@ -196,6 +197,12 @@ function renderTaskStatus(currentTask, config, rov) {
   setText("dockingPwmLimit", formatDockingPwmLimit(currentTask));
   setText("dockedHoldActive", formatBool(currentTask.docked_hold_active));
   setClass("dockedHoldActive", currentTask.docked_hold_active === true ? "ok" : "");
+  setText("dockingLostHoldActive", formatBool(currentTask.docking_lost_hold_active));
+  setClass("dockingLostHoldActive", currentTask.docking_lost_hold_active === true ? "ok" : "");
+  setText("dockingLostHoldLastZ", formatNumber(currentTask.docking_lost_hold_last_z_m, 3, " m"));
+  setText("dockingLostHoldCh3", formatNumber(currentTask.docking_lost_hold_ch3_pwm, 0, " PWM"));
+  setText("dockingLostHoldReason", currentTask.docking_lost_hold_reason || "-");
+  setText("dockingLostHoldWaiting", formatBool(currentTask.docking_lost_hold_waiting_reacquisition));
   setText("preDockBlockReason", currentTask.filtered_state?.pre_dock_block_reason || "-");
   setText("lastMessage", formatTime(rov.last_message_time));
 }

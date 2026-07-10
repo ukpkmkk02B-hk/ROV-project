@@ -516,6 +516,167 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(status["mission_mode"], "tracking")
         self.assertEqual(status["stage"], module.DockingTask.STATE_TRACK)
 
+    def test_close_docking_loss_holds_only_buoyancy_pwm_and_stays_in_docking(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.10,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        camera = FakeCamera([pose, None], diagnostics={"reject_reason": "no_marker"})
+        state_machine = FakeStateMachine()
+        task = self._make_vertical_docking_task(
+            module,
+            camera=camera,
+            enable_motion=True,
+            pre_align_buoyancy_hold_pwm=1620,
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            camera.detected = False
+            task.run()
+            confirm_result = task.confirm_manual_dock(source="unit_test")
+
+        status = task.get_status()
+        expected_rc = {f"ch{i}": 1500 for i in range(1, 9)}
+        expected_rc["ch3"] = 1620
+        self.assertEqual(status["mission_mode"], "docking")
+        self.assertEqual(status["stage"], module.DockingTask.STATE_DOCKING_LOST_HOLD)
+        self.assertEqual(status["rc_override"], expected_rc)
+        self.assertEqual(task.pixhawk.commands[-1], {"rc": expected_rc})
+        self.assertTrue(status["docking_lost_hold_active"])
+        self.assertTrue(status["docking_lost_hold_waiting_reacquisition"])
+        self.assertEqual(status["docking_lost_hold_last_z_m"], 0.10)
+        self.assertEqual(status["docking_lost_hold_ch3_pwm"], 1620)
+        self.assertEqual(status["docking_lost_hold_reason"], "no_marker")
+        self.assertFalse(confirm_result["accepted"])
+        self.assertEqual(confirm_result["reason"], "not_pre_aligned")
+        self.assertNotIn(("promote", "tracking"), state_machine.events)
+
+    def test_close_docking_loss_hold_dry_run_calculates_without_sending(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.10,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        camera = FakeCamera([pose, None], detected=True)
+        task = self._make_vertical_docking_task(module, camera=camera, enable_motion=False)
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            camera.detected = False
+            task.run()
+
+        self.assertEqual(task.stage, module.DockingTask.STATE_DOCKING_LOST_HOLD)
+        self.assertEqual(task.last_rc_override["ch3"], 1600)
+        self.assertEqual(task.pixhawk.commands, [])
+
+    def test_close_docking_loss_camera_failure_keeps_existing_neutral_downgrade(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.10,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        camera = FakeCamera([pose, None], detected=True, diagnostics={"reject_reason": "capture_failed"})
+        task = self._make_vertical_docking_task(module, camera=camera, enable_motion=True)
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            task.run()
+
+        self.assertEqual(task.mission_mode, "tracking")
+        self.assertEqual(task.stage, module.DockingTask.STATE_SEARCH)
+        self.assertEqual(task.pixhawk.commands[-1], {"rc": {f"ch{i}": 1500 for i in range(1, 9)}})
+
+    def test_delayed_confirmed_close_loss_still_enters_buoyancy_hold(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.10,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        camera = FakeCamera([pose, None], detected=True)
+        task = self._make_vertical_docking_task(
+            module,
+            camera=camera,
+            enable_motion=True,
+            pre_dock_recent_observation_max_age_s=0.05,
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            stale_now = task.last_valid_observation_time + 1.0
+            task.start_time = stale_now
+            camera.detected = False
+            with patch.object(module.time, "time", return_value=stale_now):
+                task.run()
+
+        expected_rc = {f"ch{i}": 1500 for i in range(1, 9)}
+        expected_rc["ch3"] = 1600
+        status = task.get_status()
+        self.assertEqual(task.mission_mode, "docking")
+        self.assertEqual(task.stage, module.DockingTask.STATE_DOCKING_LOST_HOLD)
+        self.assertEqual(task.pixhawk.commands[-1], {"rc": expected_rc})
+        self.assertEqual(status["docking_lost_hold_last_z_m"], 0.10)
+        self.assertTrue(status["docking_lost_hold_active"])
+
+    def test_close_docking_loss_hold_ignores_timeout_and_reacquires_pre_align(self):
+        module = import_docking_with_stubs()
+        pose = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.10,
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0,
+            "timestamp": 10.0,
+        }
+        camera = FakeCamera([pose, None, None, dict(pose, z=0.11, timestamp=20.0)], detected=True)
+        task = self._make_vertical_docking_task(module, camera=camera, enable_motion=True)
+
+        with patch("builtins.print"):
+            task.start()
+            task.run()
+            camera.detected = False
+            task.run()
+            task.start_time = 0.0
+            with patch.object(module.time, "time", return_value=100.0):
+                task.run()
+            self.assertEqual(task.stage, module.DockingTask.STATE_DOCKING_LOST_HOLD)
+            camera.detected = True
+            task.run()
+
+        status = task.get_status()
+        self.assertEqual(status["mission_mode"], "docking")
+        self.assertEqual(status["stage"], module.DockingTask.STATE_PRE_ALIGN)
+        self.assertFalse(status["docking_lost_hold_active"])
+        self.assertFalse(status["docking_lost_hold_waiting_reacquisition"])
+        self.assertIsNone(status["docking_lost_hold_last_z_m"])
+        self.assertLessEqual(abs(status["rc_override"]["ch3"] - 1600), 5)
+
     def test_no_new_pose_while_target_visible_keeps_last_rc_override(self):
         module = import_docking_with_stubs()
         pose = {

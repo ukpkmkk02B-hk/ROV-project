@@ -62,6 +62,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn("pre_align_target_approach_speed_m_s: 0.03", text)
         self.assertIn("pre_align_approach_speed_kp: 2000", text)
         self.assertIn("pre_dock_approach_speed_tolerance_m_s: 0.01", text)
+        self.assertIn("pre_align_close_loss_hold_max_distance_m: 0.15", text)
         self.assertIn("max_yaw_rate_deg_s: 10.0", text)
         self.assertIn('forward_axis: "y"', text)
         self.assertIn("forward_sign: -1.0", text)

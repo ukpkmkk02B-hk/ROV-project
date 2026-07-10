@@ -129,8 +129,12 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
             "pre_align_target_approach_speed_m_s",
             "pre_align_approach_speed_kp",
             "pre_dock_approach_speed_tolerance_m_s",
+            "pre_align_close_loss_hold_max_distance_m",
         ):
             self.assertIn(f'name="{field}"', html)
+
+        self.assertIn('name="pre_align_buoyancy_hold_pwm" type="number" min="1500" max="2000"', html)
+        self.assertIn('name="pre_align_down_pwm_max" type="number" min="1500" max="2000"', html)
 
         for element_id in (
             "dockingApproachRaw",
@@ -141,11 +145,17 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
             "dockingHoldActive",
             "dockingPwmLimit",
             "dockedHoldActive",
+            "dockingLostHoldActive",
+            "dockingLostHoldLastZ",
+            "dockingLostHoldCh3",
+            "dockingLostHoldReason",
+            "dockingLostHoldWaiting",
         ):
             self.assertIn(f'id="{element_id}"', html)
             self.assertIn(f'"{element_id}"', js)
 
         self.assertIn('docked_hold: "对接浮力保持 / docked_hold"', js)
+        self.assertIn('docking_lost_hold: "近距离丢失保持 / docking_lost_hold"', js)
         self.assertIn("Restart main.py", html)
 
 

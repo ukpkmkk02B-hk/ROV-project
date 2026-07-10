@@ -288,6 +288,22 @@ class DockingRuntimeCommandTests(unittest.TestCase):
         self.assertEqual(task.calls[-1], ("stop", "called"))
         self.assertIsNone(scheduler.current_task)
 
+    def test_disarm_cleanup_stops_active_close_loss_hold_after_neutralizing(self):
+        task = FakeDockingTask(enable_motion=True, stage="docking_lost_hold")
+        task.stop = lambda: task.calls.append(("stop", "called"))
+        scheduler = scheduler_with_docking(task)
+        pixhawk = FakePixhawk()
+        rc_state = {"ch3": 1600, "ch5": 1500}
+
+        result = stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state)
+
+        neutral = {f"ch{i}": 1500 for i in range(1, 9)}
+        self.assertTrue(result["accepted"])
+        self.assertEqual(pixhawk.rc_commands[0], neutral)
+        self.assertEqual(rc_state, neutral)
+        self.assertEqual(task.calls[-1], ("stop", "called"))
+        self.assertIsNone(scheduler.current_task)
+
     def test_disarm_cleanup_leaves_other_visual_stages_unchanged(self):
         task = FakeDockingTask(enable_motion=True, stage="pre_align")
         scheduler = scheduler_with_docking(task)

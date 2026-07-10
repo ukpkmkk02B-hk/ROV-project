@@ -3,6 +3,7 @@
 import os
 import sys
 import threading
+import math
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
@@ -26,6 +27,7 @@ class DockingTask:
     STATE_PRE_ALIGN = "pre_align"
     STATE_DOCKED = "docked"
     STATE_DOCKED_HOLD = "docked_hold"
+    STATE_DOCKING_LOST_HOLD = "docking_lost_hold"
     STATE_FAILED = "failed"
     STATE_APPROACH = STATE_TRACK
     STATE_ALIGN = STATE_PRE_ALIGN
@@ -115,6 +117,7 @@ class DockingTask:
             tracking_config.get("pre_dock_recent_observation_max_age_s", 0.5)
         )
         self._clear_dock_completion_state()
+        self._clear_docking_lost_hold_state()
         # 状态机所需属性
         self.name = self.mission_mode
         self.status = "idle"
@@ -158,6 +161,7 @@ class DockingTask:
         self.pre_dock_ready = False
         self.last_failure_reason = ""
         self._clear_dock_completion_state()
+        self._clear_docking_lost_hold_state()
         self.tracking_ctrl.reset()
         self.docking_vertical_ctrl.reset()
         self.estimator.reset()
@@ -176,6 +180,7 @@ class DockingTask:
             self.status = "stopped"
             self._send_neutral_before_stop()
             self._clear_dock_completion_state()
+            self._clear_docking_lost_hold_state()
             self.tracking_ctrl.reset()
             self.docking_vertical_ctrl.reset()
         
@@ -194,7 +199,7 @@ class DockingTask:
         # after the operator explicitly engages docking/pre-align.
         if (
             self.mission_mode == self.MISSION_DOCKING
-            and self.stage != self.STATE_DOCKED_HOLD
+            and self.stage not in (self.STATE_DOCKED_HOLD, self.STATE_DOCKING_LOST_HOLD)
             and time.time() - self.start_time > 60.0
         ):
             print("[DockingTask] ⏰ 任务超时，切换到失败状态")
@@ -218,11 +223,23 @@ class DockingTask:
                 self.last_valid_observation_time = now
                 self.filtered_state = self.estimator.update(pose, pose.get("timestamp", now))
                 self.filtered_state = self._annotate_state(self.filtered_state, has_valid_observation=True, now=now)
+                if self.stage == self.STATE_DOCKING_LOST_HOLD:
+                    if self.camera.target_detected():
+                        self._resume_pre_align_after_target_reacquired()
+                        return self._track(self.filtered_state)
+                    return self._hold_after_close_target_loss()
             else:
+                if self.stage == self.STATE_DOCKING_LOST_HOLD:
+                    if self._camera_loss_reason() in {"capture_failed", "camera_open_failed"}:
+                        self.filtered_state = self._lost_state(now)
+                        return self._handle_no_target()
+                    return self._hold_after_close_target_loss()
                 if not self._camera_reports_target_lost():
                     return self._handle_no_new_pose(now)
                 self.lost_counter += 1
                 print(f"[DockingTask] ⚠️ 第 {self.lost_counter} 次丢失目标")
+                if self._should_hold_after_close_target_loss():
+                    return self._enter_close_target_loss_hold(now)
                 self.filtered_state = self._lost_state(now)
                 return self._handle_no_target()
 
@@ -268,6 +285,16 @@ class DockingTask:
             "tracking_ready": self.tracking_ready,
             "pre_dock_ready": self.pre_dock_ready,
             "docked_hold_active": self.stage == self.STATE_DOCKED_HOLD,
+            "docking_lost_hold_active": self.stage == self.STATE_DOCKING_LOST_HOLD,
+            "docking_lost_hold_last_z_m": self.docking_lost_hold_last_z_m,
+            "docking_lost_hold_reason": self.docking_lost_hold_reason,
+            "docking_lost_hold_waiting_reacquisition": self.stage == self.STATE_DOCKING_LOST_HOLD,
+            "docking_lost_hold_since": self.docking_lost_hold_since,
+            "docking_lost_hold_ch3_pwm": (
+                self.docking_vertical_ctrl.buoyancy_hold_pwm
+                if self.stage == self.STATE_DOCKING_LOST_HOLD
+                else None
+            ),
             "manual_dock_confirmed": self.manual_dock_confirmed,
             "dock_completion_source": self.dock_completion_source,
             "dock_completion_time": self.dock_completion_time,
@@ -296,6 +323,7 @@ class DockingTask:
         self.valid_observation_count = 0
         self.last_valid_observation_time = None
         self._clear_dock_completion_state()
+        self._clear_docking_lost_hold_state()
         self.tracking_ctrl.reset()
         self.docking_vertical_ctrl.reset()
         self.estimator.reset()
@@ -311,6 +339,7 @@ class DockingTask:
 
     def _handle_no_target(self):
         """处理目标丢失情况"""
+        self._clear_docking_lost_hold_state()
         self.pre_dock_ready = False
         self.tracking_ready = False
         self.tracking_ctrl.reset()
@@ -366,6 +395,80 @@ class DockingTask:
                 pass
 
         return True
+
+    def _camera_loss_reason(self):
+        diagnostics = getattr(self.camera, "get_diagnostics", None)
+        if not callable(diagnostics):
+            return ""
+        try:
+            return str((diagnostics() or {}).get("reject_reason", ""))
+        except Exception:
+            return ""
+
+    def _should_hold_after_close_target_loss(self):
+        if self.mission_mode != self.MISSION_DOCKING or self.stage != self.STATE_PRE_ALIGN:
+            return False
+        if self._camera_loss_reason() in {"capture_failed", "camera_open_failed"}:
+            return False
+        try:
+            last_z_m = float((self.last_pose or {}).get("z"))
+        except (TypeError, ValueError):
+            return False
+        return (
+            math.isfinite(last_z_m)
+            and last_z_m >= 0.0
+            and last_z_m <= self.docking_vertical_ctrl.close_loss_hold_max_distance_m
+        )
+
+    def _enter_close_target_loss_hold(self, now):
+        self.pre_dock_ready = False
+        self.tracking_ready = False
+        self.docking_lost_hold_last_z_m = float(self.last_pose["z"])
+        self.docking_lost_hold_reason = self._camera_loss_reason() or "target_lost_near_dock"
+        self.docking_lost_hold_since = float(now)
+        self.stage = self.STATE_DOCKING_LOST_HOLD
+        self.tracking_ctrl.reset()
+        self.docking_vertical_ctrl.reset(initial_pwm=self.docking_vertical_ctrl.buoyancy_hold_pwm)
+        self.estimator.reset()
+        self.valid_observation_count = 0
+        self.last_valid_observation_time = None
+        self.filtered_state = self._lost_state(now)
+        return self._hold_after_close_target_loss()
+
+    def _hold_after_close_target_loss(self):
+        """Hold vertical buoyancy PWM while waiting for close-range ArUco reacquisition."""
+        with self._output_lock:
+            if self.status != "running" or self.stage != self.STATE_DOCKING_LOST_HOLD:
+                return False
+            hold_status = self.docking_vertical_ctrl.activate_buoyancy_hold()
+            self.last_command = self.tracking_ctrl.neutral_command()
+            self.last_command.update(hold_status)
+            self.last_command["docking_lost_hold_active"] = True
+            self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+            self.last_rc_override = self.rc_mapper.neutral_channels()
+            up_channel = self.rc_mapper.channels.get("up", "ch3")
+            self.last_rc_override[up_channel] = self.docking_vertical_ctrl.buoyancy_hold_pwm
+            self.filtered_state = dict(self.filtered_state or {})
+            self.filtered_state.update(hold_status)
+            self.filtered_state.update(
+                {
+                    "status": self.STATE_DOCKING_LOST_HOLD,
+                    "docking_lost_hold_active": True,
+                    "docking_lost_hold_last_z_m": self.docking_lost_hold_last_z_m,
+                    "docking_lost_hold_reason": self.docking_lost_hold_reason,
+                    "docking_lost_hold_waiting_reacquisition": True,
+                }
+            )
+            if self.enable_motion:
+                self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
+            return True
+
+    def _resume_pre_align_after_target_reacquired(self):
+        self.stage = self.STATE_PRE_ALIGN
+        self.pre_dock_ready = False
+        self.tracking_ready = False
+        self.docking_vertical_ctrl.reset(initial_pwm=self.docking_vertical_ctrl.buoyancy_hold_pwm)
+        self._clear_docking_lost_hold_state()
 
     def _handle_no_new_pose(self, now):
         if self.filtered_state:
@@ -583,6 +686,11 @@ class DockingTask:
         self.dock_completion_time = None
         self.dock_completion_rejected_reason = ""
         self.charging_start_requested = False
+
+    def _clear_docking_lost_hold_state(self):
+        self.docking_lost_hold_last_z_m = None
+        self.docking_lost_hold_reason = ""
+        self.docking_lost_hold_since = None
 
     def _annotate_state(self, state, has_valid_observation, now=None):
         state = dict(state or {})

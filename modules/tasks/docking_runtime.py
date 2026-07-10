@@ -167,9 +167,9 @@ def stop_docking_safely(scheduler, pixhawk, rc_state, neutral_pwm=1500):
 
 
 def stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state, neutral_pwm=1500):
-    """Neutralize and stop only an active docked-hold task before disarming."""
+    """Neutralize and stop a fixed-PWM Docking hold before disarming."""
     task = current_docking_task(scheduler)
-    if task is None or getattr(task, "stage", None) != "docked_hold":
+    if task is None or getattr(task, "stage", None) not in {"docked_hold", "docking_lost_hold"}:
         return None
     return stop_docking_safely(scheduler, pixhawk, rc_state, neutral_pwm)
 

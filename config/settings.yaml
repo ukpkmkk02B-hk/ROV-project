@@ -83,6 +83,7 @@ vision_tracking:
   pre_align_target_approach_speed_m_s: 0.03
   pre_align_approach_speed_kp: 2000
   pre_dock_approach_speed_tolerance_m_s: 0.01
+  pre_align_close_loss_hold_max_distance_m: 0.15
   control_mode: "pid"
   control_deadband_m: 0.01
   yaw_deadband_deg: 1.0

@@ -6,7 +6,7 @@ class DockingVerticalController:
 
     NEUTRAL_PWM = 1500
     MIN_PWM = 1500
-    MAX_PWM = 1800
+    MAX_PWM = 2000
     SPEED_FILTER_ALPHA = 0.2
     PWM_SLEW_RATE_PER_S = 100.0
     DEFAULT_DT_S = 0.05
@@ -50,6 +50,13 @@ class DockingVerticalController:
             0.01,
             0.0,
             0.1,
+        )
+        self.close_loss_hold_max_distance_m = self._float_config(
+            config,
+            "pre_align_close_loss_hold_max_distance_m",
+            0.15,
+            0.05,
+            0.5,
         )
 
         self._filtered_approach_speed_m_s = None
@@ -125,6 +132,7 @@ class DockingVerticalController:
             "pre_align_pwm_saturated_high": saturated_high,
             "pre_align_vertical_allowed": bool(vertical_allowed),
             "pre_dock_approach_speed_tolerance_m_s": self.approach_speed_tolerance_m_s,
+            "pre_align_close_loss_hold_max_distance_m": self.close_loss_hold_max_distance_m,
             "pre_dock_approach_speed_ok": speed_ready,
             "pre_align_input_valid": True,
             "pre_align_invalid_reason": "",
@@ -165,6 +173,7 @@ class DockingVerticalController:
             "pre_align_pwm_saturated_high": False,
             "pre_align_vertical_allowed": False,
             "pre_dock_approach_speed_tolerance_m_s": self.approach_speed_tolerance_m_s,
+            "pre_align_close_loss_hold_max_distance_m": self.close_loss_hold_max_distance_m,
             "pre_dock_approach_speed_ok": True,
             "pre_align_input_valid": True,
             "pre_align_invalid_reason": "",

@@ -94,6 +94,11 @@
               <dt>浮力保持 / Buoyancy hold</dt><dd id="dockingHoldActive">-</dd>
               <dt>PWM 限幅 / Limit</dt><dd id="dockingPwmLimit">-</dd>
               <dt>确认后保持 / Docked hold</dt><dd id="dockedHoldActive">-</dd>
+              <dt>近距离丢失保持 / Lost hold</dt><dd id="dockingLostHoldActive">-</dd>
+              <dt>丢失前 z / Last z</dt><dd id="dockingLostHoldLastZ">-</dd>
+              <dt>丢失保持 ch3 / Hold ch3</dt><dd id="dockingLostHoldCh3">-</dd>
+              <dt>丢失保持原因 / Reason</dt><dd id="dockingLostHoldReason">-</dd>
+              <dt>等待重新识别 / Reacquire</dt><dd id="dockingLostHoldWaiting">-</dd>
               <dt>预对接阻止原因 / Block</dt><dd id="preDockBlockReason">-</dd>
               <dt>最近消息 / Last msg</dt><dd id="lastMessage">-</dd>
             </dl>
@@ -342,11 +347,12 @@
                   <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
                   <label><span>预对接最大速度 / pre_align_max_v_m_s</span><input name="pre_align_max_v_m_s" type="number" step="0.01" max="1.0"></label>
                   <label><span>预对接最大偏航 / pre_align_max_yaw_rate_deg_s</span><input name="pre_align_max_yaw_rate_deg_s" type="number" step="0.1"></label>
-                  <label><span>浮力保持 ch3 / pre_align_buoyancy_hold_pwm</span><input name="pre_align_buoyancy_hold_pwm" type="number" min="1500" max="1800" step="1"></label>
-                  <label><span>下潜安全上限 / pre_align_down_pwm_max</span><input name="pre_align_down_pwm_max" type="number" min="1500" max="1800" step="1"></label>
+                  <label><span>浮力保持 ch3 / pre_align_buoyancy_hold_pwm</span><input name="pre_align_buoyancy_hold_pwm" type="number" min="1500" max="2000" step="1"></label>
+                  <label><span>下潜安全上限 / pre_align_down_pwm_max</span><input name="pre_align_down_pwm_max" type="number" min="1500" max="2000" step="1"></label>
                   <label><span>目标接近速度 / pre_align_target_approach_speed_m_s</span><input name="pre_align_target_approach_speed_m_s" type="number" min="0" max="0.20" step="0.005"></label>
                   <label><span>接近速度增益 / pre_align_approach_speed_kp</span><input name="pre_align_approach_speed_kp" type="number" min="0" max="5000" step="50"></label>
                   <label><span>就绪速度容差 / pre_dock_approach_speed_tolerance_m_s</span><input name="pre_dock_approach_speed_tolerance_m_s" type="number" min="0" max="0.10" step="0.005"></label>
+                  <label><span>近距丢失保持阈值 / pre_align_close_loss_hold_max_distance_m</span><input name="pre_align_close_loss_hold_max_distance_m" type="number" min="0.05" max="0.50" step="0.01"></label>
                   <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
                   <label><span>最近观测窗口 / recent_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
                   <label><span>位置容差 / position_tolerance_m</span><input name="pre_dock_position_tolerance_m" type="number" step="0.005"></label>
