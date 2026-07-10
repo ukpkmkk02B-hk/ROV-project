@@ -413,13 +413,19 @@ Docking 不是直接开始的，必须先 Tracking。
 
 Body 面板显示视觉位姿转换到母鱼机体系后的误差：
 
-- `forward`：前后距离。
+- `forward`：画面上下方向对应的前后居中误差。
 - `right`：左右偏差。
 - `up`：升沉偏差。
 - `yaw error`：偏航误差。
 - `filtered z / yaw`：滤波后的距离和偏航。
 
 这些值是视觉闭环 PID 的输入依据。
+
+当前 Tracking 前后方向约定：
+
+- ArUco 在画面上方时，`pose_y` 通常为负，视觉闭环应输出前进修正。
+- ArUco 在画面下方时，`pose_y` 通常为正，视觉闭环应输出后退修正。
+- ArUco 位于画面中心附近时，前后修正应接近 0。
 
 ### 4.6 输出 / Output
 
@@ -566,7 +572,7 @@ Tracking 区有三种垂向策略：
 `visual_pid` 模式下：
 
 - Tracking 会使用 `desired_z_m` 作为目标距离。
-- 当前配置中 `desired_z_m` 对应 ArUco 正对摄像头方向的距离误差，并通过升沉通道 `ch3` 输出。
+- 当前配置中 `desired_z_m` 用于 Target Distance / visual_pid 的目标距离逻辑；普通 Tracking 默认仍以 ArUco 画面居中为主，不用 `desired_z_m` 驱动前后修正。
 - 只有确认需要自动保持目标距离时，再点击上位机里的 `Target Distance`。
 - 首次下水不建议一开始就启用该模式，先用 `Disable Vertical` 验证水平跟踪更安全。
 

@@ -60,7 +60,7 @@ vision_tracking:
   max_abs_yaw_deg: 180.0
   camera_to_body:
     forward_axis: "y"
-    forward_sign: 1.0
+    forward_sign: -1.0
     right_axis: "x"
     right_sign: 1.0
     up_axis: "z"

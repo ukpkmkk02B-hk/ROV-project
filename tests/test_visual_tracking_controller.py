@@ -62,14 +62,14 @@ class VisualTrackingControllerTests(unittest.TestCase):
         self.assertAlmostEqual(command["pid_forward_output"], command["forward_m_s"])
         self.assertAlmostEqual(command["pid_yaw_output"], command["yaw_rate_rad_s"])
 
-    def test_centering_mapping_uses_pose_y_for_forward_and_pose_z_for_vertical_distance(self):
+    def test_centering_mapping_drives_forward_when_marker_is_above_image_center(self):
         controller = VisualTrackingController(
             desired_z_m=0.5,
             max_v_m_s=0.4,
             control_mode="pid",
             camera_to_body={
                 "forward_axis": "y",
-                "forward_sign": 1.0,
+                "forward_sign": -1.0,
                 "right_axis": "x",
                 "right_sign": 1.0,
                 "up_axis": "z",
@@ -86,16 +86,21 @@ class VisualTrackingControllerTests(unittest.TestCase):
         centered_but_far = controller.compute_command(
             {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 90.0, "timestamp": 1.0}
         )
-        y_offset = controller.compute_command(
-            {"x": 0.0, "y": 0.12, "z": 0.5, "yaw": 90.0, "timestamp": 2.0}
+        marker_above_center = controller.compute_command(
+            {"x": 0.0, "y": -0.12, "z": 0.5, "yaw": 90.0, "timestamp": 2.0}
+        )
+        marker_below_center = controller.compute_command(
+            {"x": 0.0, "y": 0.12, "z": 0.5, "yaw": 90.0, "timestamp": 3.0}
         )
 
         self.assertEqual(centered_but_far["forward_m_s"], 0.0)
         self.assertAlmostEqual(centered_but_far["up_m_s"], -0.3)
         self.assertEqual(centered_but_far["raw_forward_error_m"], 0.0)
         self.assertAlmostEqual(centered_but_far["raw_up_error_m"], -0.3)
-        self.assertAlmostEqual(y_offset["forward_m_s"], 0.12)
-        self.assertEqual(y_offset["up_m_s"], 0.0)
+        self.assertAlmostEqual(marker_above_center["forward_m_s"], 0.12)
+        self.assertEqual(marker_above_center["up_m_s"], 0.0)
+        self.assertAlmostEqual(marker_below_center["forward_m_s"], -0.12)
+        self.assertEqual(marker_below_center["up_m_s"], 0.0)
 
     def test_deadband_suppresses_small_stationary_target_noise_before_pid(self):
         controller = VisualTrackingController(

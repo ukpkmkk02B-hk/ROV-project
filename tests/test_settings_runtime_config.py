@@ -59,6 +59,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertIn("start_charging_after_dock: false", text)
         self.assertIn("max_yaw_rate_deg_s: 10.0", text)
         self.assertIn('forward_axis: "y"', text)
+        self.assertIn("forward_sign: -1.0", text)
         self.assertIn('up_axis: "z"', text)
         self.assertIn("pid:", text)
         self.assertIn("forward:", text)
