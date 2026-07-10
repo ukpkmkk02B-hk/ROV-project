@@ -1,4 +1,5 @@
 import logging
+import math
 import queue
 import threading
 import time
@@ -128,6 +129,9 @@ def validate_pose_quality(pose, config):
         yaw = float(pose.get("yaw", 0.0))
     except (KeyError, TypeError, ValueError):
         return _set_pose_quality(pose, False, "invalid_pose_fields")
+
+    if not all(math.isfinite(value) for value in (x, y, z, yaw)):
+        return _set_pose_quality(pose, False, "non_finite_pose_fields")
 
     if abs(x) > max_abs_position_m or abs(y) > max_abs_position_m:
         return _set_pose_quality(pose, False, "position_out_of_range")

@@ -119,6 +119,35 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         )
         self.assertNotIn('$("reloadConfigBtn").addEventListener("click", refreshStatus);', js)
 
+    def test_surface_console_exposes_docking_vertical_tuning_and_diagnostics(self):
+        html = Path("tools/surface_console/static/index.html").read_text(encoding="utf-8")
+        js = Path("tools/surface_console/static/app.js").read_text(encoding="utf-8")
+
+        for field in (
+            "pre_align_buoyancy_hold_pwm",
+            "pre_align_down_pwm_max",
+            "pre_align_target_approach_speed_m_s",
+            "pre_align_approach_speed_kp",
+            "pre_dock_approach_speed_tolerance_m_s",
+        ):
+            self.assertIn(f'name="{field}"', html)
+
+        for element_id in (
+            "dockingApproachRaw",
+            "dockingApproachFiltered",
+            "dockingApproachTarget",
+            "dockingApproachError",
+            "dockingCh3",
+            "dockingHoldActive",
+            "dockingPwmLimit",
+            "dockedHoldActive",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+            self.assertIn(f'"{element_id}"', js)
+
+        self.assertIn('docked_hold: "对接浮力保持 / docked_hold"', js)
+        self.assertIn("Restart main.py", html)
+
 
 if __name__ == "__main__":
     unittest.main()

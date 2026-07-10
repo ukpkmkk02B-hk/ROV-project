@@ -166,6 +166,14 @@ def stop_docking_safely(scheduler, pixhawk, rc_state, neutral_pwm=1500):
     }
 
 
+def stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state, neutral_pwm=1500):
+    """Neutralize and stop only an active docked-hold task before disarming."""
+    task = current_docking_task(scheduler)
+    if task is None or getattr(task, "stage", None) != "docked_hold":
+        return None
+    return stop_docking_safely(scheduler, pixhawk, rc_state, neutral_pwm)
+
+
 def _send_neutral_if_available(pixhawk, rc_state, neutral_pwm=1500):
     if pixhawk is None or rc_state is None:
         return {"neutral_sent": False, "neutral_error": ""}

@@ -16,6 +16,7 @@ from modules.comms.charging_comm import ChargingComm
 
 from modules.controller.manual_modes import mode_command_result
 from modules.controller.manual_rc import apply_manual_rov_command
+from modules.controller.docking_vertical_controller import DockingVerticalController
 from modules.states_machine.state_machine import TaskScheduler
 from modules.tasks.docking_task import DockingTask
 from modules.tasks.docking_confirmation import confirm_current_docking_task
@@ -23,6 +24,7 @@ from modules.tasks.docking_runtime import (
     handle_docking_runtime_command,
     neutralize_rc_state,
     should_send_manual_rc_state,
+    stop_docked_hold_before_disarm,
     stop_docking_safely,
 )
 from modules.tasks.charging_task import ChargingTask
@@ -75,6 +77,8 @@ def main():
     with open("config/settings.yaml", "r") as f:
 
         config = yaml.safe_load(f)
+    # Validate Docking vertical limits before camera/Pixhawk startup or any propulsion output.
+    DockingVerticalController(config.get("vision_tracking", {}))
     # === 1. 初始化通信模块 ===
     surface = SurfaceComm({"host": "0.0.0.0", "port": 9002})  # TCP 接收来自上位机的控制指令
     camera = create_main_camera(config, surface=surface)
@@ -243,6 +247,9 @@ def main():
                     time.sleep(1)
                     status_update["armed"] = pixhawk.is_armed()
                 elif rov_cmd == "disarm":
+                    docked_hold_stop = stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state)
+                    if docked_hold_stop is not None:
+                        status_update["docking_stop"] = docked_hold_stop
                     pixhawk.disarm_vehicle()
                     time.sleep(1)
                     status_update["armed"] = pixhawk.is_armed()

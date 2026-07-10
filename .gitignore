@@ -5,6 +5,7 @@ install/
 log/
 tmp/
 external/
+docs/
 
 __pycache__/
 *.py[cod]

@@ -153,6 +153,16 @@ class MarkerTrackerHelperTests(unittest.TestCase):
                 self.assertFalse(pose["pose_valid"])
                 self.assertEqual(pose["reject_reason"], reason)
 
+    def test_validate_pose_quality_rejects_non_finite_pose_fields(self):
+        for field in ("x", "y", "z", "yaw"):
+            pose = {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0}
+            pose[field] = float("nan")
+
+            with self.subTest(field=field):
+                self.assertFalse(validate_pose_quality(pose, {}))
+                self.assertFalse(pose["pose_valid"])
+                self.assertEqual(pose["reject_reason"], "non_finite_pose_fields")
+
     def test_tracker_stats_count_frame_level_results(self):
         stats = new_tracker_stats()
 

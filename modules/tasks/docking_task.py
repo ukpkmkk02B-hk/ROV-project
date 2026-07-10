@@ -2,6 +2,7 @@
 # 添加目录到sys.path使得导入可以正常工作
 import os
 import sys
+import threading
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
@@ -9,6 +10,7 @@ sys.path.insert(0, project_root)
 
 import time
 from modules.controller import path_follower, precision_docking
+from modules.controller.docking_vertical_controller import DockingVerticalController
 from modules.controller.motion_command import camera_state_to_body_error, motion_command_from_mapping
 from modules.controller.rc_override_mapper import RcOverrideMapper
 from modules.controller.visual_axis_policy import VisualAxisPolicy
@@ -23,6 +25,7 @@ class DockingTask:
     STATE_TRACK = "track"
     STATE_PRE_ALIGN = "pre_align"
     STATE_DOCKED = "docked"
+    STATE_DOCKED_HOLD = "docked_hold"
     STATE_FAILED = "failed"
     STATE_APPROACH = STATE_TRACK
     STATE_ALIGN = STATE_PRE_ALIGN
@@ -45,6 +48,7 @@ class DockingTask:
         self.camera = camera
         self.pixhawk = pixhawk
         self.state_machine = state_machine  # 状态机引用
+        self._output_lock = threading.RLock()
         tracking_config = tracking_config or {}
         self.tracking_config = tracking_config
         self.mission_mode = mission_mode or tracking_config.get("mission_mode", self.MISSION_DOCKING)
@@ -84,6 +88,7 @@ class DockingTask:
             tracking_config,
             up_channel=self.rc_mapper.channels.get("up", "ch3"),
         )
+        self.docking_vertical_ctrl = DockingVerticalController(tracking_config)
         self.estimator = ConstantVelocityEKF(max_lost_frames=tracking_config.get("max_lost_frames", 10))
         self.start_charging_after_dock = bool(tracking_config.get("start_charging_after_dock", False))
         self.target_motion_mode = tracking_config.get("target_motion_mode", "stationary_child")
@@ -154,6 +159,7 @@ class DockingTask:
         self.last_failure_reason = ""
         self._clear_dock_completion_state()
         self.tracking_ctrl.reset()
+        self.docking_vertical_ctrl.reset()
         self.estimator.reset()
         self.valid_observation_count = 0
         self.last_valid_observation_time = None
@@ -166,10 +172,12 @@ class DockingTask:
     def stop(self):
         """停止对接任务"""
         print("[DockingTask] ⏹️ 停止对接任务")
-        self._send_neutral_before_stop()
-        self._clear_dock_completion_state()
-        self.tracking_ctrl.reset()
-        self.status = "stopped"
+        with self._output_lock:
+            self.status = "stopped"
+            self._send_neutral_before_stop()
+            self._clear_dock_completion_state()
+            self.tracking_ctrl.reset()
+            self.docking_vertical_ctrl.reset()
         
         # 通知状态机任务已停止
         self.state_machine.notify_task_stop(self.name)######
@@ -184,11 +192,18 @@ class DockingTask:
 
         # Tracking is allowed to run continuously. The 60s timeout only applies
         # after the operator explicitly engages docking/pre-align.
-        if self.mission_mode == self.MISSION_DOCKING and time.time() - self.start_time > 60.0:
+        if (
+            self.mission_mode == self.MISSION_DOCKING
+            and self.stage != self.STATE_DOCKED_HOLD
+            and time.time() - self.start_time > 60.0
+        ):
             print("[DockingTask] ⏰ 任务超时，切换到失败状态")
             self.stage = self.STATE_FAILED
             self._handle_failure()
             return
+
+        if self.stage == self.STATE_DOCKED_HOLD:
+            return self._hold_after_confirm()
 
         try:
             now = time.time()
@@ -252,6 +267,7 @@ class DockingTask:
             "rc_override": self.last_rc_override,
             "tracking_ready": self.tracking_ready,
             "pre_dock_ready": self.pre_dock_ready,
+            "docked_hold_active": self.stage == self.STATE_DOCKED_HOLD,
             "manual_dock_confirmed": self.manual_dock_confirmed,
             "dock_completion_source": self.dock_completion_source,
             "dock_completion_time": self.dock_completion_time,
@@ -264,6 +280,7 @@ class DockingTask:
             "last_failure_reason": self.last_failure_reason,
             "output_backend": self.output_backend,
             **self.axis_policy.status(),
+            **self.docking_vertical_ctrl.status(),
             "attempts": self.attempts
         }
 
@@ -280,6 +297,7 @@ class DockingTask:
         self.last_valid_observation_time = None
         self._clear_dock_completion_state()
         self.tracking_ctrl.reset()
+        self.docking_vertical_ctrl.reset()
         self.estimator.reset()
         if self.attempts >= self.max_attempts:
             self.stage = self.STATE_FAILED
@@ -296,6 +314,7 @@ class DockingTask:
         self.pre_dock_ready = False
         self.tracking_ready = False
         self.tracking_ctrl.reset()
+        self.docking_vertical_ctrl.reset()
         self.estimator.reset()
         self.valid_observation_count = 0
         self.last_valid_observation_time = None
@@ -382,10 +401,8 @@ class DockingTask:
 
         base_command = self.tracking_ctrl.compute_command(state)
         state.update(self.tracking_ctrl.pre_dock_diagnostics(state))
-        self.filtered_state = state
-        ready = self.tracking_ctrl.is_pre_dock_ready(state)
-        self.tracking_ready = ready
-        self.pre_dock_ready = ready if self.mission_mode == self.MISSION_DOCKING else False
+        geometry_ready = bool(state.get("pre_dock_ready"))
+        self.tracking_ready = geometry_ready
         base_command = self._gate_pre_align_vertical(base_command, state)
         self.last_command = self.axis_policy.apply(base_command, stage=self.stage)
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
@@ -393,6 +410,32 @@ class DockingTask:
             self.rc_mapper.map_motion_command(self.last_command),
             stage=self.stage,
         )
+
+        if self.mission_mode == self.MISSION_DOCKING and self.stage == self.STATE_PRE_ALIGN:
+            vertical_status = self.docking_vertical_ctrl.update(
+                camera_vz_m_s=state.get("vz", 0.0),
+                desired_up_m_s=self.last_command.get("up_m_s", 0.0),
+                vertical_allowed=bool(self.last_command.get("pre_align_vertical_allowed", False)),
+                timestamp=state.get("timestamp", time.time()),
+            )
+            if self.output_backend == "rc_override" and self.rc_mapper.enabled:
+                up_channel = self.rc_mapper.channels.get("up", "ch3")
+                self.last_rc_override[up_channel] = vertical_status["pre_align_vertical_pwm"]
+            state.update(vertical_status)
+            self.last_command.update(vertical_status)
+            speed_ready = bool(vertical_status["pre_dock_approach_speed_ok"])
+            self.pre_dock_ready = geometry_ready and speed_ready
+            state["pre_dock_ready"] = self.pre_dock_ready
+            if geometry_ready and not speed_ready:
+                state["pre_dock_block_reason"] = (
+                    "approach_speed_high"
+                    if vertical_status.get("pre_align_input_valid", True)
+                    else "approach_speed_invalid"
+                )
+        else:
+            self.pre_dock_ready = False
+
+        self.filtered_state = state
 
         if self.enable_motion:
             self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
@@ -433,14 +476,19 @@ class DockingTask:
             return self._docking_engage_result(False, "not_tracking", source)
         if not self.filtered_state or not self.filtered_state.get("has_recent_valid_observation"):
             return self._docking_engage_result(False, "recent_observation_expired", source)
+        if self.enable_motion and self.output_backend != "rc_override":
+            return self._docking_engage_result(False, "docking_vertical_requires_rc_override", source)
 
         self.mission_mode = self.MISSION_DOCKING
         self.name = self.MISSION_DOCKING
         self.stage = self.STATE_PRE_ALIGN
         self.start_time = time.time()
         self.search_start_time = None
-        self.pre_dock_ready = self.tracking_ctrl.is_pre_dock_ready(self.filtered_state)
-        self.tracking_ready = self.pre_dock_ready
+        self.pre_dock_ready = False
+        self.tracking_ready = self.tracking_ctrl.is_pre_dock_ready(self.filtered_state)
+        up_channel = self.rc_mapper.channels.get("up", "ch3")
+        initial_pwm = self.last_rc_override.get(up_channel, self.rc_mapper.neutral_pwm)
+        self.docking_vertical_ctrl.reset(initial_pwm=initial_pwm)
         return self._docking_engage_result(True, "", source)
 
     def _docking_engage_result(self, accepted, reason, source):
@@ -456,18 +504,20 @@ class DockingTask:
 
     def confirm_manual_dock(self, source="surface"):
         """Manually confirm docking after visual pre-alignment."""
-        reject_reason = self._manual_dock_reject_reason()
-        if reject_reason:
-            self.dock_completion_rejected_reason = reject_reason
-            return self._manual_dock_result(False, reject_reason, source)
+        with self._output_lock:
+            reject_reason = self._manual_dock_reject_reason()
+            if reject_reason:
+                self.dock_completion_rejected_reason = reject_reason
+                return self._manual_dock_result(False, reject_reason, source)
 
-        self.manual_dock_confirmed = True
-        self.dock_completion_source = source
-        self.dock_completion_time = time.time()
-        self.dock_completion_rejected_reason = ""
-        self.stage = self.STATE_DOCKED
-        self._docked()
-        return self._manual_dock_result(True, "", source)
+            self.manual_dock_confirmed = True
+            self.dock_completion_source = source
+            self.dock_completion_time = time.time()
+            self.dock_completion_rejected_reason = ""
+            self.stage = self.STATE_DOCKED_HOLD
+            self.charging_start_requested = False
+            self._hold_after_confirm()
+            return self._manual_dock_result(True, "", source)
 
     def _manual_dock_reject_reason(self):
         if self.status != "running":
@@ -554,34 +604,63 @@ class DockingTask:
         return state
 
     def _send_motion_command(self, command, rc_override=None):
-        if self.output_backend == "rc_override":
-            self.pixhawk.send_rc_override(rc_override if rc_override is not None else self.rc_mapper.map_motion_command(command))
-        elif self.output_backend == "mavlink_velocity":
-            self.pixhawk.send_velocity_command(command)
-        else:
-            raise RuntimeError(f"unsupported output_backend: {self.output_backend}")
+        with self._output_lock:
+            if self.status != "running":
+                return False
+            if self.output_backend == "rc_override":
+                self.pixhawk.send_rc_override(
+                    rc_override if rc_override is not None else self.rc_mapper.map_motion_command(command)
+                )
+            elif self.output_backend == "mavlink_velocity":
+                self.pixhawk.send_velocity_command(command)
+            else:
+                raise RuntimeError(f"unsupported output_backend: {self.output_backend}")
+            return True
 
     def _send_neutral_before_stop(self):
-        self.last_command = self.tracking_ctrl.neutral_command()
-        self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
-        self.last_rc_override = (
-            self.rc_mapper.neutral_channels()
-            if self.output_backend == "rc_override" and self.rc_mapper.enabled
-            else self.rc_mapper.map_motion_command(self.last_command)
-        )
-        if not self.enable_motion:
-            return
-        try:
-            if self.output_backend == "rc_override":
-                self.pixhawk.send_rc_override(self.last_rc_override)
-            elif self.output_backend == "mavlink_velocity":
-                self.pixhawk.send_velocity_command(self.last_command)
-        except Exception as exc:
-            print(f"[DockingTask] ⚠️ 停止时发送中性控制失败: {exc}")
+        with self._output_lock:
+            self.last_command = self.tracking_ctrl.neutral_command()
+            self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+            self.last_rc_override = (
+                self.rc_mapper.neutral_channels()
+                if self.output_backend == "rc_override" and self.rc_mapper.enabled
+                else self.rc_mapper.map_motion_command(self.last_command)
+            )
+            if not self.enable_motion:
+                return
+            try:
+                if self.output_backend == "rc_override":
+                    self.pixhawk.send_rc_override(self.last_rc_override)
+                elif self.output_backend == "mavlink_velocity":
+                    self.pixhawk.send_velocity_command(self.last_command)
+            except Exception as exc:
+                print(f"[DockingTask] ⚠️ 停止时发送中性控制失败: {exc}")
+
+    def _hold_after_confirm(self):
+        """Hold buoyancy-compensation PWM after manual confirmation until STOP/Disarm."""
+        with self._output_lock:
+            if self.status != "running" or self.stage != self.STATE_DOCKED_HOLD:
+                return False
+            hold_status = self.docking_vertical_ctrl.activate_buoyancy_hold()
+            self.last_command = self.tracking_ctrl.neutral_command()
+            self.last_command.update(hold_status)
+            self.last_command["docked_hold_active"] = True
+            self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+            self.last_rc_override = self.rc_mapper.neutral_channels()
+            up_channel = self.rc_mapper.channels.get("up", "ch3")
+            self.last_rc_override[up_channel] = self.docking_vertical_ctrl.buoyancy_hold_pwm
+            self.filtered_state = dict(self.filtered_state or {})
+            self.filtered_state.update(hold_status)
+            self.filtered_state["docked_hold_active"] = True
+            if self.enable_motion:
+                self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
+            return True
 
     def _validate_motion_output_config(self):
         if self.output_backend not in self.VALID_OUTPUT_BACKENDS:
             raise RuntimeError(f"unsupported output_backend: {self.output_backend}")
+        if self.mission_mode == self.MISSION_DOCKING and self.output_backend != "rc_override":
+            raise RuntimeError("docking_vertical_requires_rc_override")
         if self.output_backend == "rc_override":
             self.rc_mapper.validate_for_motion(require_enabled=True)
         self.axis_policy.validate_for_motion()

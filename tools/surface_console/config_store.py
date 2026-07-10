@@ -16,6 +16,11 @@ CONFIG_FIELDS = {
     "pre_align_correction_scale": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_v_m_s": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_yaw_rate_deg_s": {"type": float, "min": 0.0, "max": 25.0},
+    "pre_align_buoyancy_hold_pwm": {"type": int, "min": 1500, "max": 1800},
+    "pre_align_down_pwm_max": {"type": int, "min": 1500, "max": 1800},
+    "pre_align_target_approach_speed_m_s": {"type": float, "min": 0.0, "max": 0.2},
+    "pre_align_approach_speed_kp": {"type": float, "min": 0.0, "max": 5000.0},
+    "pre_dock_approach_speed_tolerance_m_s": {"type": float, "min": 0.0, "max": 0.1},
     "pid.forward.kp": {"type": float, "min": 0.0, "max": 5.0},
     "pid.right.kp": {"type": float, "min": 0.0, "max": 5.0},
     "pid.up.kp": {"type": float, "min": 0.0, "max": 5.0},
@@ -53,6 +58,13 @@ def update_console_config(path, updates, confirm_motion=False):
         raise PermissionError("enable_motion=true requires confirm_motion=true")
 
     path = Path(path)
+    merged = read_console_config(path)
+    merged.update(normalized)
+    hold_pwm = merged.get("pre_align_buoyancy_hold_pwm")
+    max_pwm = merged.get("pre_align_down_pwm_max")
+    if hold_pwm is not None and max_pwm is not None and hold_pwm > max_pwm:
+        raise ValueError("pre_align_buoyancy_hold_pwm must be <= pre_align_down_pwm_max")
+
     text = path.read_text(encoding="utf-8")
     text = _update_vision_scalars(text, normalized)
     path.write_text(text, encoding="utf-8")
@@ -155,7 +167,13 @@ def _coerce_and_validate(field, value):
     elif value_type is int:
         if isinstance(value, bool):
             raise ValueError(f"{field} must be an integer")
-        coerced = int(value)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field} must be an integer") from None
+        if not numeric.is_integer():
+            raise ValueError(f"{field} must be an integer")
+        coerced = int(numeric)
     elif value_type is str:
         coerced = str(value)
         choices = spec.get("choices")

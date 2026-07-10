@@ -3,15 +3,24 @@ import unittest
 from modules.tasks.docking_runtime import (
     handle_docking_runtime_command,
     should_send_manual_rc_state,
+    stop_docked_hold_before_disarm,
     stop_docking_safely,
 )
 
 
 class FakeDockingTask:
-    def __init__(self, enable_motion=False, status="running", mission_mode="docking", recent_observation=True):
+    def __init__(
+        self,
+        enable_motion=False,
+        status="running",
+        mission_mode="docking",
+        recent_observation=True,
+        stage="pre_align",
+    ):
         self.enable_motion = enable_motion
         self.status = status
         self.mission_mode = mission_mode
+        self.stage = stage
         self.filtered_state = {"has_recent_valid_observation": recent_observation}
         self.calls = []
 
@@ -262,6 +271,35 @@ class DockingRuntimeCommandTests(unittest.TestCase):
         self.assertEqual(rc_state, neutral)
         self.assertEqual(pixhawk.rc_commands, [neutral])
         self.assertEqual(scheduler.pending_task_names, [])
+
+    def test_disarm_cleanup_stops_active_docked_hold_after_neutralizing(self):
+        task = FakeDockingTask(enable_motion=True, stage="docked_hold")
+        task.stop = lambda: task.calls.append(("stop", "called"))
+        scheduler = scheduler_with_docking(task)
+        pixhawk = FakePixhawk()
+        rc_state = {"ch3": 1600, "ch5": 1500}
+
+        result = stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state)
+
+        neutral = {f"ch{i}": 1500 for i in range(1, 9)}
+        self.assertTrue(result["accepted"])
+        self.assertEqual(pixhawk.rc_commands[0], neutral)
+        self.assertEqual(rc_state, neutral)
+        self.assertEqual(task.calls[-1], ("stop", "called"))
+        self.assertIsNone(scheduler.current_task)
+
+    def test_disarm_cleanup_leaves_other_visual_stages_unchanged(self):
+        task = FakeDockingTask(enable_motion=True, stage="pre_align")
+        scheduler = scheduler_with_docking(task)
+        pixhawk = FakePixhawk()
+        rc_state = {"ch3": 1650}
+
+        result = stop_docked_hold_before_disarm(scheduler, pixhawk, rc_state)
+
+        self.assertIsNone(result)
+        self.assertEqual(pixhawk.rc_commands, [])
+        self.assertEqual(rc_state, {"ch3": 1650})
+        self.assertIsNotNone(scheduler.current_task)
 
     def test_reset_command_resets_scheduler_and_neutralizes_rc(self):
         scheduler = FakeScheduler()

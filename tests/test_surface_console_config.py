@@ -26,6 +26,11 @@ vision_tracking:
   pre_align_correction_scale: 0.25
   pre_align_max_v_m_s: 0.05
   pre_align_max_yaw_rate_deg_s: 3.0
+  pre_align_buoyancy_hold_pwm: 1600
+  pre_align_down_pwm_max: 1700
+  pre_align_target_approach_speed_m_s: 0.03
+  pre_align_approach_speed_kp: 2000
+  pre_dock_approach_speed_tolerance_m_s: 0.01
   enable_motion: false
   min_pre_dock_valid_frames: 3
   pre_dock_recent_observation_max_age_s: 0.5
@@ -69,6 +74,11 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["min_pre_dock_valid_frames"], 3)
         self.assertEqual(values["tracking_vertical_mode"], "disabled")
         self.assertEqual(values["pre_align_axis_mode"], "small_correction")
+        self.assertEqual(values["pre_align_buoyancy_hold_pwm"], 1600)
+        self.assertEqual(values["pre_align_down_pwm_max"], 1700)
+        self.assertEqual(values["pre_align_target_approach_speed_m_s"], 0.03)
+        self.assertEqual(values["pre_align_approach_speed_kp"], 2000)
+        self.assertEqual(values["pre_dock_approach_speed_tolerance_m_s"], 0.01)
         self.assertEqual(values["min_marker_pixel_size_px"], 25.0)
         self.assertEqual(values["max_reprojection_error_px"], 5.0)
         self.assertEqual(values["camera_to_body.yaw_offset_deg"], -90.0)
@@ -97,6 +107,11 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                     "min_pre_dock_valid_frames": 4,
                     "tracking_vertical_mode": "hold_captured_ch3",
                     "pre_align_axis_mode": "lock_horizontal",
+                    "pre_align_buoyancy_hold_pwm": 1580,
+                    "pre_align_down_pwm_max": 1680,
+                    "pre_align_target_approach_speed_m_s": 0.04,
+                    "pre_align_approach_speed_kp": 1800,
+                    "pre_dock_approach_speed_tolerance_m_s": 0.015,
                     "min_marker_pixel_size_px": 40.0,
                     "max_reprojection_error_px": 3.5,
                     "camera_to_body.yaw_offset_deg": -88.0,
@@ -120,6 +135,11 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(updated["min_pre_dock_valid_frames"], 4)
         self.assertEqual(updated["tracking_vertical_mode"], "hold_captured_ch3")
         self.assertEqual(updated["pre_align_axis_mode"], "lock_horizontal")
+        self.assertEqual(updated["pre_align_buoyancy_hold_pwm"], 1580)
+        self.assertEqual(updated["pre_align_down_pwm_max"], 1680)
+        self.assertEqual(updated["pre_align_target_approach_speed_m_s"], 0.04)
+        self.assertEqual(updated["pre_align_approach_speed_kp"], 1800.0)
+        self.assertEqual(updated["pre_dock_approach_speed_tolerance_m_s"], 0.015)
         self.assertEqual(updated["camera_to_body.yaw_offset_deg"], -88.0)
         self.assertEqual(updated["pid.forward.kp"], 0.21)
         self.assertEqual(updated["pid.forward.output_limit"], 0.61)
@@ -131,6 +151,11 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertIn("min_pre_dock_valid_frames: 4", text)
         self.assertIn('tracking_vertical_mode: "hold_captured_ch3"', text)
         self.assertIn('pre_align_axis_mode: "lock_horizontal"', text)
+        self.assertIn("pre_align_buoyancy_hold_pwm: 1580", text)
+        self.assertIn("pre_align_down_pwm_max: 1680", text)
+        self.assertIn("pre_align_target_approach_speed_m_s: 0.04", text)
+        self.assertIn("pre_align_approach_speed_kp: 1800.0", text)
+        self.assertIn("pre_dock_approach_speed_tolerance_m_s: 0.015", text)
         self.assertIn("min_marker_pixel_size_px: 40.0", text)
         self.assertIn("max_reprojection_error_px: 3.5", text)
         self.assertIn("yaw_offset_deg: -88.0", text)
@@ -164,6 +189,30 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                 update_console_config(path, {"tracking_vertical_mode": "alt_hold"})
             with self.assertRaises(ValueError):
                 update_console_config(path, {"pre_align_axis_mode": "drift"})
+
+    def test_docking_vertical_fields_enforce_ranges_and_hold_not_above_max(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "settings.yaml"
+            path.write_text(SAMPLE_SETTINGS, encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_buoyancy_hold_pwm": 1600.5})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_down_pwm_max": 1801})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_target_approach_speed_m_s": 0.21})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_approach_speed_kp": 5001})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_dock_approach_speed_tolerance_m_s": 0.11})
+            with self.assertRaises(ValueError):
+                update_console_config(
+                    path,
+                    {
+                        "pre_align_buoyancy_hold_pwm": 1710,
+                        "pre_align_down_pwm_max": 1700,
+                    },
+                )
 
     def test_velocity_limit_fields_allow_one_meter_per_second_but_no_more(self):
         with tempfile.TemporaryDirectory() as tmpdir:

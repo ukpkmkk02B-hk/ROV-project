@@ -23,6 +23,7 @@ const LABELS = {
     track: "视觉跟踪 / track",
     pre_align: "预对准 / pre_align",
     docked: "已对接 / docked",
+    docked_hold: "对接浮力保持 / docked_hold",
     failed: "失败 / failed",
     running: "运行中 / running",
     completed: "已完成 / completed",
@@ -186,7 +187,26 @@ function renderTaskStatus(currentTask, config, rov) {
   );
   setText("capturedCh3", formatCapturedCh3(currentTask));
   setClass("capturedCh3", currentTask.captured_hold_ch3_available === true ? "ok" : "");
+  setText("dockingApproachRaw", formatNumber(currentTask.pre_align_raw_approach_speed_m_s, 3, " m/s"));
+  setText("dockingApproachFiltered", formatNumber(currentTask.pre_align_filtered_approach_speed_m_s, 3, " m/s"));
+  setText("dockingApproachTarget", formatNumber(currentTask.pre_align_target_approach_speed_m_s, 3, " m/s"));
+  setText("dockingApproachError", formatNumber(currentTask.pre_align_approach_speed_error_m_s, 3, " m/s"));
+  setText("dockingCh3", formatNumber(currentTask.pre_align_vertical_pwm, 0, " PWM"));
+  setText("dockingHoldActive", formatBool(currentTask.pre_align_buoyancy_hold_active));
+  setText("dockingPwmLimit", formatDockingPwmLimit(currentTask));
+  setText("dockedHoldActive", formatBool(currentTask.docked_hold_active));
+  setClass("dockedHoldActive", currentTask.docked_hold_active === true ? "ok" : "");
+  setText("preDockBlockReason", currentTask.filtered_state?.pre_dock_block_reason || "-");
   setText("lastMessage", formatTime(rov.last_message_time));
+}
+
+function formatDockingPwmLimit(task) {
+  if (task.pre_align_pwm_saturated_high === true) return "上限 / high";
+  if (task.pre_align_pwm_saturated_low === true) return "下限 / low";
+  if (task.pre_align_pwm_saturated_high === false && task.pre_align_pwm_saturated_low === false) {
+    return "未限幅 / none";
+  }
+  return "-";
 }
 
 function renderVideoStatus(video) {

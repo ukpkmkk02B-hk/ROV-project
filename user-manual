@@ -303,9 +303,11 @@ Docking 不是直接开始的，必须先 Tracking。
 5. 点击 `进入对接 / Engage Docking`。
 6. 看左侧 `任务模式 / Mission`，应从 `tracking` 变成 `docking`。
 7. 看顶部 `预对接 / Pre-dock`。
-8. 如果 `pre_dock_ready=true`，可以点击 `人工确认 / Confirm`。
-9. 对接流程结束后点击 `STOP`。
-10. 如果真实运动已经启用，最后点击 `上锁 / Disarm`。
+8. 同时观察原始/滤波接近速度、目标接近速度和 `Docking ch3`；若阻止原因为 `approach_speed_high`，等待 ROV 减速。
+9. 如果 `pre_dock_ready=true`，可以点击 `人工确认 / Confirm`。
+10. Confirm 后任务进入 `docked_hold`，继续输出浮力保持 ch3；不要把 Confirm 当成停止推进器。
+11. 对接流程结束后点击 `STOP`。
+12. 如果真实运动已经启用，最后点击 `上锁 / Disarm`。
 
 如果直接点击 `Engage Docking` 被拒绝：
 
@@ -610,6 +612,7 @@ Start Tracking
 -> Engage Docking
 -> pre_dock_ready
 -> Confirm
+-> docked_hold（固定浮力保持 ch3）
 -> STOP / Disarm
 ```
 
@@ -655,6 +658,15 @@ Docking 区提供：
 - 当前任务是 Docking。
 - 已进入 `pre_align`。
 - `pre_dock_ready=true`。
+- 几何条件、有效帧和最近观测均满足。
+- 滤波后的接近速度绝对值不超过 `pre_dock_approach_speed_tolerance_m_s`。
+
+Confirm 后行为：
+
+- 进入 `docked_hold`，任务仍为 `running`，不受 Docking 60 秒超时限制。
+- 不再依赖 ArUco；码被遮挡时仍固定输出 `pre_align_buoyancy_hold_pwm`。
+- 不自动启动 Charging。
+- 必须点击 STOP 或 Disarm 才退出保持；STOP 会先发送全通道 1500，Disarm 在 `docked_hold` 中也会先回中并停止任务再上锁。
 
 ## 10. 参数调节区
 
@@ -685,10 +697,35 @@ Docking 区提供：
 - `pre_align_correction_scale`：小修正比例。
 - `pre_align_max_v_m_s`：预对接最大速度。
 - `pre_align_max_yaw_rate_deg_s`：预对接最大偏航角速度。
+- `pre_align_buoyancy_hold_pwm`：抵消正浮力、既不上浮也不继续下潜时使用的绝对 ch3，默认 `1600`，范围 `1500–1800`。
+- `pre_align_down_pwm_max`：Docking 自动下潜的绝对 ch3 安全上限，默认 `1700`，范围 `1500–1800`，且不得小于浮力保持值。
+- `pre_align_target_approach_speed_m_s`：距离较远时允许的最大 ArUco 接近速度，默认 `0.03 m/s`，范围 `0–0.20 m/s`。
+- `pre_align_approach_speed_kp`：接近速度误差到 PWM 的比例增益，默认 `2000 PWM/(m/s)`，范围 `0–5000`。
+- `pre_dock_approach_speed_tolerance_m_s`：允许人工 Confirm 的接近速度阈值，默认 `0.01 m/s`，范围 `0–0.10 m/s`。
 - `min_pre_dock_valid_frames`：进入预对接所需有效帧数。
 - `pre_dock_position_tolerance_m`：位置容差。
 - `pre_dock_distance_tolerance_m`：距离容差。
 - `pre_dock_yaw_tolerance_deg`：偏航容差。
+
+Docking 垂向控制只在 `Docking / pre_align` 生效，不修改普通 Tracking。控制含义如下：
+
+```text
+实际接近速度 = -vz
+Docking ch3 = 浮力保持 ch3
+              + 速度增益 × (目标接近速度 - 实际接近速度)
+```
+
+输出以 `100 PWM/s` 限制变化率，并限制在 `1500` 到 `pre_align_down_pwm_max`。该专用 ch3 可以超过全局 RC mapper 的 `1600`，但不能超过 Docking 专用安全上限。
+
+推荐水中调参顺序：
+
+1. 保持系留和 `Small Correction`，先调整 `pre_align_buoyancy_hold_pwm`，找到 ROV 基本不上浮也不下潜的值。
+2. 再调整 `pre_align_target_approach_speed_m_s`，决定期望下潜接近速度。
+3. 再调整 `pre_align_approach_speed_kp`；太小会跟速慢，太大可能使 ch3 抖动或频繁限幅。
+4. 最后调整 `pre_dock_approach_speed_tolerance_m_s`，决定多慢才允许 Confirm。
+5. `pre_align_down_pwm_max` 只作为安全上限，不应首先用它追求更快下潜。
+
+任务诊断区可观察：原始/滤波接近速度、当前目标速度、速度误差、最终 Docking ch3、浮力保持是否激活、PWM 是否限幅、`docked_hold` 是否激活及预对接阻止原因。
 
 ### 10.3 Vision Quality
 

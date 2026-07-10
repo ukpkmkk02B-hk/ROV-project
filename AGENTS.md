@@ -18,7 +18,7 @@
 * 子机器人串口通信。
 * 充电模块串口通信。
 * 上位机 TCP 通信和状态上报。
-* AprilTag 摄像头接口。
+* ArUco 单目视觉跟踪、位姿估计和对接控制。
 * 对接、充电、子机器人控制等任务调度。
 
 `rov_vision_calib-main/` 是相机标定、ArUco 位姿验证和视觉伺服实验资料目录，不是当前主控制程序入口。
@@ -58,7 +58,7 @@ main.py                         主程序入口
 config/settings.yaml            根项目硬件和通信配置
 requirements.txt                根项目 Python 依赖声明
 modules/comms/                  Pixhawk、子鱼、充电、深度计、上位机通信
-modules/perception/             感知相关代码，当前主要是 AprilTag 摄像头接口
+modules/perception/             感知相关代码，当前主线是 ArUco 标志跟踪和位姿估计
 modules/controller/             对接控制器
 modules/tasks/                  对接、充电、子机器人控制任务
 modules/states_machine/         任务调度状态机
@@ -119,17 +119,21 @@ tests/pixhawk.py
 
 ## 视觉与标定说明
 
-当前代码中存在两套视觉线索，后续实现单目视觉跟踪前必须先确认真实硬件使用哪一种视觉标志。
+当前真实硬件和运行主线已经确定使用 ArUco 标志，不再以 AprilTag 作为视觉跟踪或对接方案。
 
 根项目运行链路：
 
-* 文件：`modules/perception/camera.py`
-* 类：`AprilTagCameraInterface`
+* 文件：`modules/perception/marker_tracker.py`
+* 类：`ArucoMarkerTracker`
 * 方法：OpenCV `VideoCapture` 读取摄像头。
-* 检测：`pupil_apriltags` AprilTag。
-* 配置：`config/settings.yaml` 中的 `AprilTagCamera_Main`。
-* 当前配置示例：`tag36h11`，`marker_length: 0.092`。
+* 检测：OpenCV `cv2.aruco` ArUco。
+* 配置：`config/settings.yaml` 中的 `vision_tracking`。
+* 当前配置：`marker_type: aruco`、`DICT_4X4_50`、marker id `20`、marker size `0.04 m`。
+* 主摄像头设备：`/dev/camera_main`。
+* 水下标定文件：`rov_vision_calib-main/config/calib_underwater_20_50cm_1080p.yaml`。
 * 位姿解算：`cv2.solvePnP`。
+
+`modules/perception/camera.py` 中的 `AprilTagCameraInterface` 和 `config/settings.yaml` 中的 `AprilTagCamera_Main` 是遗留线索，不代表当前视觉跟踪主线。除非用户明确要求清理遗留代码，否则不要仅为统一命名而删除或重构它们。
 
 标定和视觉实验目录：
 
@@ -140,7 +144,7 @@ tests/pixhawk.py
 * ArUco 配置：`rov_vision_calib-main/config/aruco_config.yaml`。
 * 当前实验配置示例：`DICT_4X4_50`，marker id `20`，marker size `0.04 m`。
 
-不要假设 AprilTag 和 ArUco 已经统一。修改单目跟踪、对接识别或视觉伺服前，应先确认实际子机器人上贴的视觉标志、物理尺寸、相机内参来源和坐标系定义。
+修改单目跟踪、对接识别或视觉伺服时，应以 ArUco 主线为准，并保持当前标志字典、marker id、物理尺寸、相机内参来源和坐标系定义；只有新的实机证据和用户明确要求才能变更这些硬件边界参数。
 
 ## 修改规则
 
@@ -222,7 +226,7 @@ from pymavlink import mavutil
 PY
 ```
 
-根 `requirements.txt` 当前可能不完整。源码中还能看到 `cv2`、`numpy`、`pupil_apriltags`、`crcmod` 等导入，后续如需整理依赖，应先在 Linux 上确认实际环境和导入结果。
+根 `requirements.txt` 当前可能不完整。源码中还能看到 `cv2`、`numpy`、`crcmod`，以及遗留 AprilTag 文件使用的 `pupil_apriltags` 等导入；后续如需整理依赖，应先在 Linux 上确认实际环境和导入结果。
 
 ### 硬件相关修改
 
@@ -251,7 +255,7 @@ PY
 
 当用户要求实现单目视觉跟踪、预对接或视觉伺服时：
 
-1. 先确认实际视觉标志是 AprilTag 还是 ArUco。
+1. 以已经确定的 ArUco 视觉标志为准，不再把 AprilTag 作为待选方案。
 2. 先确认相机内参、畸变参数和标志物实际尺寸。
 3. 先确认相机坐标系到母机器人坐标系的转换关系。
 4. 先做 dry-run 日志，不直接发送推进控制。
