@@ -22,7 +22,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
 
         result = controller.update(
             camera_vz_m_s=-0.02,
-            desired_up_m_s=-0.03,
+            target_approach_speed_m_s=0.03,
             vertical_allowed=True,
             timestamp=1.0,
         )
@@ -38,7 +38,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
 
         result = controller.update(
             camera_vz_m_s=0.0,
-            desired_up_m_s=0.0,
+            target_approach_speed_m_s=0.0,
             vertical_allowed=True,
             timestamp=1.0,
         )
@@ -53,7 +53,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
 
         result = controller.update(
             camera_vz_m_s=0.0,
-            desired_up_m_s=-0.05,
+            target_approach_speed_m_s=0.05,
             vertical_allowed=False,
             timestamp=1.0,
         )
@@ -65,11 +65,11 @@ class DockingVerticalControllerTests(unittest.TestCase):
     def test_too_slow_increases_pwm_and_too_fast_reduces_pwm(self):
         slow = self.make_controller(pre_align_approach_speed_kp=1000.0)
         slow.reset(timestamp=0.0, initial_pwm=1600)
-        slow_result = slow.update(-0.01, -0.03, True, timestamp=1.0)
+        slow_result = slow.update(-0.01, 0.03, True, timestamp=1.0)
 
         fast = self.make_controller(pre_align_approach_speed_kp=1000.0)
         fast.reset(timestamp=0.0, initial_pwm=1600)
-        fast_result = fast.update(-0.05, -0.03, True, timestamp=1.0)
+        fast_result = fast.update(-0.05, 0.03, True, timestamp=1.0)
 
         self.assertGreater(slow_result["pre_align_vertical_pwm"], 1600)
         self.assertLess(fast_result["pre_align_vertical_pwm"], 1600)
@@ -78,8 +78,8 @@ class DockingVerticalControllerTests(unittest.TestCase):
         controller = self.make_controller(pre_align_approach_speed_kp=5000.0)
         controller.reset(timestamp=0.0, initial_pwm=1500)
 
-        first = controller.update(0.0, -0.03, True, timestamp=0.5)
-        second = controller.update(0.0, -0.03, True, timestamp=1.0)
+        first = controller.update(0.0, 0.03, True, timestamp=0.5)
+        second = controller.update(0.0, 0.03, True, timestamp=1.0)
 
         self.assertEqual(first["pre_align_vertical_pwm"], 1550)
         self.assertEqual(second["pre_align_vertical_pwm"], 1600)
@@ -127,7 +127,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
 
     def test_post_confirm_hold_reports_and_outputs_exact_hold_pwm(self):
         controller = self.make_controller(pre_align_buoyancy_hold_pwm=1610)
-        controller.update(0.0, -0.03, True, timestamp=1.0)
+        controller.update(0.0, 0.03, True, timestamp=1.0)
 
         status = controller.activate_buoyancy_hold()
 
@@ -140,7 +140,7 @@ class DockingVerticalControllerTests(unittest.TestCase):
     def test_non_finite_speed_fails_safe_and_filter_recovers(self):
         controller = self.make_controller()
 
-        invalid = controller.update(float("nan"), -0.03, True, timestamp=1.0)
+        invalid = controller.update(float("nan"), 0.03, True, timestamp=1.0)
         recovered = controller.update(0.0, 0.0, False, timestamp=1.05)
 
         self.assertEqual(invalid["pre_align_vertical_pwm"], 1500)

@@ -12,21 +12,17 @@ class VisualAxisPolicy:
     """Runtime axis policy for visual tracking and pre-align stages."""
 
     TRACKING_VERTICAL_DISABLED = "disabled"
-    TRACKING_VERTICAL_VISUAL_PID = "visual_pid"
     TRACKING_VERTICAL_HOLD_CH3 = "hold_captured_ch3"
     VALID_TRACKING_VERTICAL_MODES = {
         TRACKING_VERTICAL_DISABLED,
-        TRACKING_VERTICAL_VISUAL_PID,
         TRACKING_VERTICAL_HOLD_CH3,
     }
 
     PRE_ALIGN_FULL_CONTROL = "full_control"
     PRE_ALIGN_SMALL_CORRECTION = "small_correction"
-    PRE_ALIGN_LOCK_HORIZONTAL = "lock_horizontal"
     VALID_PRE_ALIGN_AXIS_MODES = {
         PRE_ALIGN_FULL_CONTROL,
         PRE_ALIGN_SMALL_CORRECTION,
-        PRE_ALIGN_LOCK_HORIZONTAL,
     }
 
     def __init__(self, config=None, up_channel="ch3"):
@@ -116,13 +112,7 @@ class VisualAxisPolicy:
             vertical_hold_active = True
 
         if _is_pre_align_stage(stage):
-            if self.pre_align_axis_mode == self.PRE_ALIGN_LOCK_HORIZONTAL:
-                forward = 0.0
-                right = 0.0
-                up = _clamp(up, -self.pre_align_max_v_m_s, self.pre_align_max_v_m_s)
-                yaw_rate = 0.0
-                pre_align_horizontal_locked = True
-            elif self.pre_align_axis_mode == self.PRE_ALIGN_SMALL_CORRECTION:
+            if self.pre_align_axis_mode == self.PRE_ALIGN_SMALL_CORRECTION:
                 forward = _clamp(
                     forward * self.pre_align_correction_scale,
                     -self.pre_align_max_v_m_s,

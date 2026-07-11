@@ -1,4 +1,6 @@
 import ast
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,6 +46,22 @@ class MainRuntimeSafetyTests(unittest.TestCase):
 
 
 class RuntimePreflightTests(unittest.TestCase):
+    def test_preflight_script_help_runs_directly_from_project_and_other_working_directories(self):
+        script = Path("tools/check_runtime_preflight.py").resolve()
+        for cwd in (Path.cwd(), Path(tempfile.gettempdir())):
+            with self.subTest(cwd=str(cwd)):
+                result = subprocess.run(
+                    [sys.executable, str(script), "--help"],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Read-only runtime preflight check", result.stdout)
+
     def _write_settings(self, directory, camera_device="/dev/camera_main", pixhawk_device="/dev/ttl_pixhawk"):
         calib = directory / "calib.yaml"
         calib.write_text("camera_matrix: {}\n", encoding="utf-8")
@@ -60,7 +78,10 @@ vision_tracking:
   marker_id: 20
   marker_size_m: 0.04
   calibration_file: "{calib.name}"
-  desired_z_m: 0.5
+  camera_to_body:
+    forward_axis: "y"
+    right_axis: "x"
+    up_axis: "z"
   enable_motion: false
   output_backend: "rc_override"
   required_mode: "MANUAL"
@@ -83,7 +104,11 @@ vision_tracking:
                 "marker_type": "aruco",
                 "device": camera_device,
                 "calibration_file": calib_name,
-                "desired_z_m": 0.5,
+                "camera_to_body": {
+                    "forward_axis": "y",
+                    "right_axis": "x",
+                    "up_axis": "z",
+                },
                 "enable_motion": False,
                 "output_backend": "rc_override",
                 "required_mode": "MANUAL",
@@ -119,6 +144,7 @@ vision_tracking:
         self.assertEqual(report["summary"]["output_backend"], "rc_override")
         self.assertEqual(report["summary"]["required_mode"], "MANUAL")
         self.assertEqual(report["summary"]["rc_channels"]["forward"], "ch5")
+        self.assertNotIn("desired_z_m", report["summary"])
 
     def test_preflight_reports_missing_device_and_dependency_errors(self):
         from tools.check_runtime_preflight import run_preflight
@@ -139,6 +165,34 @@ vision_tracking:
         self.assertIn("missing module: cv2.aruco", report["errors"])
         self.assertIn("missing camera device: /dev/camera_main", report["errors"])
         self.assertIn("missing pixhawk device: /dev/ttl_pixhawk", report["errors"])
+
+    def test_preflight_rejects_missing_or_unsafe_camera_axis_mapping(self):
+        from tools.check_runtime_preflight import run_preflight
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings, calib = self._write_settings(root)
+            for mapping in (
+                {},
+                {"forward_axis": "z", "right_axis": "x", "up_axis": "y"},
+                {"forward_axis": "x", "right_axis": "y", "up_axis": "z"},
+            ):
+                config = self._settings_dict()
+                config["vision_tracking"]["camera_to_body"] = mapping
+                with self.subTest(mapping=mapping), patch(
+                    "tools.check_runtime_preflight.load_settings",
+                    return_value=config,
+                ):
+                    report = run_preflight(
+                        config_path=settings,
+                        project_root=root,
+                        module_checker=lambda name: True,
+                        path_exists=lambda path: Path(path) == calib
+                        or str(path) in {"/dev/camera_main", "/dev/ttl_pixhawk"},
+                    )
+
+                self.assertFalse(report["ok"])
+                self.assertIn("unsafe_camera_to_body_axis_mapping", report["errors"])
 
 
 if __name__ == "__main__":

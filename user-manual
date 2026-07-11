@@ -501,7 +501,6 @@ Tracking 是视觉跟踪阶段，只负责：
 - 滤波。
 - 让 ArUco 尽量保持在摄像头画面中心。
 - 默认控制前后、横向和偏航，不主动控制升沉。
-- 只有手动切到 `Target Distance / visual_pid` 后，Tracking 才会用 `desired_z_m` 参与升沉/距离控制。
 - 输出 dry-run 或真实 RC override。
 
 Tracking 不负责：
@@ -555,11 +554,12 @@ enable_motion: false
 - Start Tracking 默认不会自动 Arm。
 - 如果没有手动 Arm，真实运动任务会被拒绝或不会输出有效推进动作。
 - 当前默认 `tracking_vertical_mode=disabled`，所以 Tracking 默认不会上浮或下潜。
-- 需要使用 `desired_z_m` 保持目标距离时，在上位机 Tracking 区点击 `Target Distance`，或在参数区把 `tracking_vertical_mode` 改为 `visual_pid` 后保存并重启 `main.py`。
+- `tracking_ready` 只表示最近观测、有效帧、画面水平位置和偏航均满足，不再要求 ArUco 接近零距离；它不是最终对接完成条件。
+- 真实运动启动前要求 `camera_to_body` 明确为 `forward_axis=y`、`right_axis=x`、`up_axis=z`。缺失或不一致时会在模式切换和解锁前以 `unsafe_camera_to_body_axis_mapping` 拒绝启动；dry-run不受该启动保护影响。
 
-## 8. 垂向模式：Disable Vertical、Target Distance 与 Hold ch3
+## 8. 垂向模式：Disable Vertical 与 Hold ch3
 
-Tracking 区有三种垂向策略：
+Tracking 区有两种垂向策略：
 
 ### 8.1 Disable Vertical
 
@@ -570,16 +570,7 @@ Tracking 区有三种垂向策略：
 - ArUco 的 `z` 距离仍会显示在 Pose / Body / Output 中，但不会在普通 Tracking 中驱动上浮或下潜。
 - 适合先验证水平跟踪、左右修正和偏航修正。
 
-### 8.2 Target Distance / visual_pid
-
-`visual_pid` 模式下：
-
-- Tracking 会使用 `desired_z_m` 作为目标距离。
-- 当前配置中 `desired_z_m` 用于 Target Distance / visual_pid 的目标距离逻辑；普通 Tracking 默认仍以 ArUco 画面居中为主，不用 `desired_z_m` 驱动前后修正。
-- 只有确认需要自动保持目标距离时，再点击上位机里的 `Target Distance`。
-- 首次下水不建议一开始就启用该模式，先用 `Disable Vertical` 验证水平跟踪更安全。
-
-### 8.3 Capture ch3 / Hold ch3
+### 8.2 Capture ch3 / Hold ch3
 
 目的：
 
@@ -659,12 +650,13 @@ Docking 区提供：
 - 当前任务是 Docking。
 - 已进入 `pre_align`。
 - `pre_dock_ready=true`。
-- 几何条件、有效帧和最近观测均满足。
+- 近距离对接中心偏置已经激活，ArUco 已进入独立偏置完成容差。
+- 偏航、有效帧和最近观测均满足。
 - 滤波后的接近速度绝对值不超过 `pre_dock_approach_speed_tolerance_m_s`。
 
 Confirm 后行为：
 
-- 进入 `docked_hold`，任务仍为 `running`，不受 Docking 60 秒超时限制。
+- 进入 `docked_hold`，任务仍为 `running`，不受 `docking_timeout_s` 限制。
 - 不再依赖 ArUco；码被遮挡时仍固定输出 `pre_align_buoyancy_hold_pwm`。
 - 不自动启动 Charging。
 - 必须点击 STOP 或 Disarm 才退出保持；STOP 会先发送全通道 1500，Disarm 在 `docked_hold` 中也会先回中并停止任务再上锁。
@@ -673,13 +665,29 @@ Confirm 后行为：
 
 当任务处于 `Docking / pre_align`，丢失前最后一次有效 ArUco z 距离不大于 `pre_align_close_loss_hold_max_distance_m`，并且丢失原因不是摄像头采集或打开故障时：
 
-- 进入 `docking_lost_hold`，不降级到 Tracking，也不受 Docking 60 秒超时限制。
+- 进入 `docking_lost_hold`，不降级到 Tracking，也不受 `docking_timeout_s` 限制。
 - ch1/ch2/ch4/ch5/ch6/ch7/ch8 回到 `1500`，ch3 固定使用 `pre_align_buoyancy_hold_pwm`。
 - 上位机显示丢失前 z、丢失原因和“等待重新识别”。
 - ArUco 重新稳定识别后回到 `pre_align`，从浮力保持 PWM 附近平滑恢复闭环。
 - STOP 或 Disarm 会先全通道回中，再停止任务。
 
 该状态只能利用预先标定的浮力补偿尽量保持水深；没有视觉、定深传感器闭环或水平定位信息时，不能保证三维位置完全不漂移。远距离丢失、没有可靠的最后有效 z，以及 `capture_failed` / `camera_open_failed` 仍沿用原安全行为：全通道回中并降级 Tracking。
+
+### 9.5 近距离对接中心偏置
+
+实际对接中心位于摄像头中心右侧 `0.03 m`、画面下方 `0.06 m`。当 Docking/pre_align 中 ArUco 已在画面中心和偏航容差内，且 z 不大于 `pre_align_close_loss_hold_max_distance_m` 时，系统锁存对接中心偏置阶段：
+
+- 期望 ArUco 位置切换为 camera x=`+0.03 m`、camera y=`+0.06 m`。
+- 按当前坐标和 RC 方向，ROV水平向左、画面向上轻微修正。
+- 使用现有视觉 PID 和 `small_correction`，不发送固定时长的开环横移。
+- 原画面中心或偏置目标位置任一仍在位置容差内且偏航合格时，现有接近速度闭环继续缓慢下潜。
+- 偏置激活后，系统直接使用 camera x/y 相对目标的误差，并用独立的 `pre_align_docking_center_tolerance_m` 判断偏置是否真正完成；通用 5 厘米位置容差不能单独允许人工 Confirm。
+- 偏置完成后，目标接近速度自动降为 `0`，ch3 闭环回到浮力保持附近并等待 ROV 减速。
+- 近距离偏置已激活、偏置完成、偏航、有效帧、最近观测和接近速度条件必须同时满足，`pre_dock_ready` 才会变为 true；偏置未激活时诊断显示 `docking_center_offset_not_active`，偏置误差过大时显示 `docking_center_offset_error_high`。
+- 偏置锁存后允许 z 在启动阈值附近波动。只有有效 z 大于“`pre_align_close_loss_hold_max_distance_m` + `pre_align_docking_center_release_hysteresis_m`”时才解除，并从当前帧恢复追踪画面中心；默认解除距离为 `0.15+0.05=0.20 m`。
+- 实际对接轴控只支持 `small_correction` 和 `full_control`；旧配置中的 `lock_horizontal` 会安全迁移为 `small_correction`。
+- Docking/pre_align 的 forward/right 不使用全局 `min_active_pwm_offset` 抬升，小修正幅度由 `pre_align_correction_scale` 和 `pre_align_max_v_m_s` 连续调节；Tracking 仍保留全局最小 PWM 偏移。
+- 近距离丢码后仍进入 `docking_lost_hold`，水平通道回中，ch3 使用浮力保持 PWM；重新识别后继续偏置对准。
 
 ## 10. 参数调节区
 
@@ -689,13 +697,14 @@ Confirm 后行为：
 
 常用项：
 
-- `desired_z_m`：Target Distance / visual_pid 和 Docking pre-align 使用的目标距离；默认 Tracking disabled 模式不会用它驱动升沉。
 - `max_v_m_s`：视觉输出最大线速度。
 - `max_yaw_rate_deg_s`：最大偏航角速度。
 - `control_deadband_m`：位置死区。
 - `yaw_deadband_deg`：偏航死区。
 - `command_smoothing_alpha`：命令平滑系数。
 - `tracking_vertical_mode`：垂向模式，当前推荐默认 `disabled`。
+
+旧配置中的 `tracking_vertical_mode: visual_pid` 已不再支持。上位机会将其显示为 `disabled`，并在下一次保存任意参数时自动写回 `disabled`；显式提交 `visual_pid` 仍会被拒绝。
 
 建议：
 
@@ -706,25 +715,32 @@ Confirm 后行为：
 
 常用项：
 
-- `pre_align_axis_mode`：预对接轴控模式。
+- `pre_align_axis_mode`：预对接轴控模式，只支持 `small_correction` 和 `full_control`。
 - `pre_align_correction_scale`：小修正比例。
 - `pre_align_max_v_m_s`：预对接最大速度。
 - `pre_align_max_yaw_rate_deg_s`：预对接最大偏航角速度。
 - `pre_align_buoyancy_hold_pwm`：抵消正浮力、既不上浮也不继续下潜时使用的绝对 ch3，默认 `1600`，范围 `1500–2000`。
 - `pre_align_down_pwm_max`：Docking 自动下潜的绝对 ch3 安全上限，默认 `1700`，范围 `1500–2000`，且不得小于浮力保持值。
-- `pre_align_target_approach_speed_m_s`：距离较远时允许的最大 ArUco 接近速度，默认 `0.03 m/s`，范围 `0–0.20 m/s`。
+- `pre_align_target_approach_speed_m_s`：偏置完成前使用的 ArUco 目标接近速度，默认 `0.03 m/s`，范围 `0–0.20 m/s`；偏置完成后自动归零。
 - `pre_align_approach_speed_kp`：接近速度误差到 PWM 的比例增益，默认 `2000 PWM/(m/s)`，范围 `0–5000`。
 - `pre_dock_approach_speed_tolerance_m_s`：允许人工 Confirm 的接近速度阈值，默认 `0.01 m/s`，范围 `0–0.10 m/s`。
 - `pre_align_close_loss_hold_max_distance_m`：仅当丢失前 ArUco z 不大于该值时进入近距离丢失保持，默认 `0.15 m`，范围 `0.05–0.50 m`。
+- `pre_align_docking_center_offset_camera_x_m`：对接中心在相机 x 方向的偏置，正值向画面右方，默认 `0.03 m`，范围 `-0.20–0.20 m`。
+- `pre_align_docking_center_offset_camera_y_m`：对接中心在相机 y 方向的偏置，正值向画面下方，默认 `0.06 m`，范围 `-0.20–0.20 m`；该方向是水平面方向，不是水深方向。
+- `pre_align_docking_center_tolerance_m`：camera x/y 到达对接中心目标的独立完成容差，默认 `0.01 m`，范围 `0.002–0.05 m`。
+- `pre_align_docking_center_release_hysteresis_m`：偏置激活后的退远解除迟滞，默认 `0.05 m`，范围 `0.01–0.50 m`；实际解除距离为近距启动阈值加该值。
+- `docking_timeout_s`：Docking/pre_align 超时，默认 `180 s`，范围 `0–600 s`；设为 `0` 表示关闭超时。
 - `min_pre_dock_valid_frames`：进入预对接所需有效帧数。
 - `pre_dock_position_tolerance_m`：位置容差。
-- `pre_dock_distance_tolerance_m`：距离容差。
+- `pre_dock_distance_tolerance_m`：普通视觉几何诊断使用的距离容差；近距离偏置激活后的最终 Docking 就绪不依赖该值。
 - `pre_dock_yaw_tolerance_deg`：偏航容差。
 
 Docking 垂向控制只在 `Docking / pre_align` 生效，不修改普通 Tracking。控制含义如下：
 
 ```text
 实际接近速度 = -vz
+偏置未完成且垂向门控允许 → 目标接近速度 = pre_align_target_approach_speed_m_s
+偏置完成或垂向门控禁止   → 目标接近速度 = 0
 Docking ch3 = 浮力保持 ch3
               + 速度增益 × (目标接近速度 - 实际接近速度)
 ```
@@ -739,8 +755,9 @@ Docking ch3 = 浮力保持 ch3
 4. 最后调整 `pre_dock_approach_speed_tolerance_m_s`，决定多慢才允许 Confirm。
 5. `pre_align_down_pwm_max` 只作为安全上限，不应首先用它追求更快下潜。
 6. 最后根据实际“码即将出画面”的 z 调整 `pre_align_close_loss_hold_max_distance_m`；阈值过大可能把普通远距离丢失误判为近距离丢失保持。
+7. 对接中心偏置方向或距离需要微调时，调整 camera x/y 两项；完成精度用独立偏置容差调整，退远后何时恢复画面中心用释放迟滞调整。横移速度仍使用 `pre_align_correction_scale` 和 `pre_align_max_v_m_s`。
 
-任务诊断区可观察：原始/滤波接近速度、当前目标速度、速度误差、最终 Docking ch3、浮力保持是否激活、PWM 是否限幅、`docked_hold` / `docking_lost_hold` 是否激活、丢失前 z、丢失原因及预对接阻止原因。
+任务诊断区可观察：原始/滤波接近速度、当前目标速度、速度误差、最终 Docking ch3、浮力保持是否激活、PWM 是否限幅、`docked_hold` / `docking_lost_hold` 是否激活、丢失前 z、偏置 camera x/y 误差、独立偏置容差、偏置对准结果、偏置解除距离、最近解除原因及预对接阻止原因。
 
 ### 10.3 Vision Quality
 
@@ -1005,5 +1022,7 @@ ss -ltnp | grep ':9002'
 
 ```bash
 cd /home/cekong418/rov_project
-PYTHONPATH=. python tools/check_runtime_preflight.py
+python3 tools/check_runtime_preflight.py
 ```
+
+检查结果中若出现 `unsafe_camera_to_body_axis_mapping`，不要启动真实运动；先恢复当前实机使用的 `forward=y/right=x/up=z` 轴映射。

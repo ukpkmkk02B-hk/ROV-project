@@ -27,7 +27,6 @@ class VisualTrackingController:
 
     def __init__(
         self,
-        desired_z_m=0.8,
         max_v_m_s=0.4,
         max_yaw_rate_deg_s=25.0,
         kp_lateral=0.4,
@@ -46,7 +45,6 @@ class VisualTrackingController:
         yaw_deadband_deg=0.0,
         command_smoothing_alpha=1.0,
     ):
-        self.desired_z_m = float(desired_z_m)
         self.max_v_m_s = float(max_v_m_s)
         self.max_yaw_rate_rad_s = math.radians(float(max_yaw_rate_deg_s))
         self.kp_lateral = float(kp_lateral)
@@ -57,7 +55,7 @@ class VisualTrackingController:
         self.pre_dock_distance_tolerance_m = float(pre_dock_distance_tolerance_m)
         self.pre_dock_yaw_tolerance_deg = float(pre_dock_yaw_tolerance_deg)
         self.camera_to_body = camera_to_body or {}
-        self.forward_target_m = self._axis_target("forward", self.desired_z_m)
+        self.forward_target_m = self._axis_target("forward", 0.0)
         self.up_target_m = self._axis_target("up", 0.0)
         self.min_pre_dock_valid_frames = int(min_pre_dock_valid_frames)
         self.pre_dock_recent_observation_max_age_s = float(pre_dock_recent_observation_max_age_s)
@@ -256,13 +254,6 @@ class VisualTrackingController:
         configured = self.camera_to_body.get(f"{name}_target_m")
         if configured not in (None, ""):
             return float(configured)
-        if name == "forward" and self._mapped_axis("forward", "z") != "z":
-            return 0.0
-        if name == "up" and self._distance_axis_is_up():
-            up_sign = _optional_float(self.camera_to_body.get("up_sign"))
-            if up_sign is None:
-                up_sign = 1.0
-            return self.desired_z_m if up_sign >= 0.0 else -self.desired_z_m
         return float(fallback)
 
     def _compute_pid_command(self, distance_error, lateral_error, vertical_error, yaw_error_deg, timestamp=None):

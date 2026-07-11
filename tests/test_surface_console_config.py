@@ -15,7 +15,6 @@ vision_tracking:
   max_reprojection_error_px: 5.0
   camera_to_body:
     yaw_offset_deg: -90.0
-  desired_z_m: 0.8
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 10.0
   control_deadband_m: 0.01
@@ -32,6 +31,11 @@ vision_tracking:
   pre_align_approach_speed_kp: 2000
   pre_dock_approach_speed_tolerance_m_s: 0.01
   pre_align_close_loss_hold_max_distance_m: 0.15
+  pre_align_docking_center_offset_camera_x_m: 0.03
+  pre_align_docking_center_offset_camera_y_m: 0.06
+  pre_align_docking_center_tolerance_m: 0.01
+  pre_align_docking_center_release_hysteresis_m: 0.05
+  docking_timeout_s: 180
   enable_motion: false
   min_pre_dock_valid_frames: 3
   pre_dock_recent_observation_max_age_s: 0.5
@@ -70,7 +74,6 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
 
             values = read_console_config(path)
 
-        self.assertEqual(values["desired_z_m"], 0.8)
         self.assertEqual(values["enable_motion"], False)
         self.assertEqual(values["min_pre_dock_valid_frames"], 3)
         self.assertEqual(values["tracking_vertical_mode"], "disabled")
@@ -81,6 +84,11 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(values["pre_align_approach_speed_kp"], 2000)
         self.assertEqual(values["pre_dock_approach_speed_tolerance_m_s"], 0.01)
         self.assertEqual(values["pre_align_close_loss_hold_max_distance_m"], 0.15)
+        self.assertEqual(values["pre_align_docking_center_offset_camera_x_m"], 0.03)
+        self.assertEqual(values["pre_align_docking_center_offset_camera_y_m"], 0.06)
+        self.assertEqual(values["pre_align_docking_center_tolerance_m"], 0.01)
+        self.assertEqual(values["pre_align_docking_center_release_hysteresis_m"], 0.05)
+        self.assertEqual(values["docking_timeout_s"], 180)
         self.assertEqual(values["min_marker_pixel_size_px"], 25.0)
         self.assertEqual(values["max_reprojection_error_px"], 5.0)
         self.assertEqual(values["camera_to_body.yaw_offset_deg"], -90.0)
@@ -105,16 +113,20 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
             updated = update_console_config(
                 path,
                 {
-                    "desired_z_m": 0.5,
                     "min_pre_dock_valid_frames": 4,
                     "tracking_vertical_mode": "hold_captured_ch3",
-                    "pre_align_axis_mode": "lock_horizontal",
+                    "pre_align_axis_mode": "full_control",
                     "pre_align_buoyancy_hold_pwm": 1580,
                     "pre_align_down_pwm_max": 1680,
                     "pre_align_target_approach_speed_m_s": 0.04,
                     "pre_align_approach_speed_kp": 1800,
                     "pre_dock_approach_speed_tolerance_m_s": 0.015,
                     "pre_align_close_loss_hold_max_distance_m": 0.12,
+                    "pre_align_docking_center_offset_camera_x_m": 0.025,
+                    "pre_align_docking_center_offset_camera_y_m": 0.055,
+                    "pre_align_docking_center_tolerance_m": 0.008,
+                    "pre_align_docking_center_release_hysteresis_m": 0.07,
+                    "docking_timeout_s": 240,
                     "min_marker_pixel_size_px": 40.0,
                     "max_reprojection_error_px": 3.5,
                     "camera_to_body.yaw_offset_deg": -88.0,
@@ -134,16 +146,20 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
             )
             text = path.read_text(encoding="utf-8")
 
-        self.assertEqual(updated["desired_z_m"], 0.5)
         self.assertEqual(updated["min_pre_dock_valid_frames"], 4)
         self.assertEqual(updated["tracking_vertical_mode"], "hold_captured_ch3")
-        self.assertEqual(updated["pre_align_axis_mode"], "lock_horizontal")
+        self.assertEqual(updated["pre_align_axis_mode"], "full_control")
         self.assertEqual(updated["pre_align_buoyancy_hold_pwm"], 1580)
         self.assertEqual(updated["pre_align_down_pwm_max"], 1680)
         self.assertEqual(updated["pre_align_target_approach_speed_m_s"], 0.04)
         self.assertEqual(updated["pre_align_approach_speed_kp"], 1800.0)
         self.assertEqual(updated["pre_dock_approach_speed_tolerance_m_s"], 0.015)
         self.assertEqual(updated["pre_align_close_loss_hold_max_distance_m"], 0.12)
+        self.assertEqual(updated["pre_align_docking_center_offset_camera_x_m"], 0.025)
+        self.assertEqual(updated["pre_align_docking_center_offset_camera_y_m"], 0.055)
+        self.assertEqual(updated["pre_align_docking_center_tolerance_m"], 0.008)
+        self.assertEqual(updated["pre_align_docking_center_release_hysteresis_m"], 0.07)
+        self.assertEqual(updated["docking_timeout_s"], 240.0)
         self.assertEqual(updated["camera_to_body.yaw_offset_deg"], -88.0)
         self.assertEqual(updated["pid.forward.kp"], 0.21)
         self.assertEqual(updated["pid.forward.output_limit"], 0.61)
@@ -151,16 +167,20 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
         self.assertEqual(updated["rc_override.min_active_pwm_offset"], 40.0)
         self.assertEqual(updated["enable_motion"], True)
         self.assertIn('device: "/dev/ttl_pixhawk"', text)
-        self.assertIn("desired_z_m: 0.5", text)
         self.assertIn("min_pre_dock_valid_frames: 4", text)
         self.assertIn('tracking_vertical_mode: "hold_captured_ch3"', text)
-        self.assertIn('pre_align_axis_mode: "lock_horizontal"', text)
+        self.assertIn('pre_align_axis_mode: "full_control"', text)
         self.assertIn("pre_align_buoyancy_hold_pwm: 1580", text)
         self.assertIn("pre_align_down_pwm_max: 1680", text)
         self.assertIn("pre_align_target_approach_speed_m_s: 0.04", text)
         self.assertIn("pre_align_approach_speed_kp: 1800.0", text)
         self.assertIn("pre_dock_approach_speed_tolerance_m_s: 0.015", text)
         self.assertIn("pre_align_close_loss_hold_max_distance_m: 0.12", text)
+        self.assertIn("pre_align_docking_center_offset_camera_x_m: 0.025", text)
+        self.assertIn("pre_align_docking_center_offset_camera_y_m: 0.055", text)
+        self.assertIn("pre_align_docking_center_tolerance_m: 0.008", text)
+        self.assertIn("pre_align_docking_center_release_hysteresis_m: 0.07", text)
+        self.assertIn("docking_timeout_s: 240.0", text)
         self.assertIn("min_marker_pixel_size_px: 40.0", text)
         self.assertIn("max_reprojection_error_px: 3.5", text)
         self.assertIn("yaw_offset_deg: -88.0", text)
@@ -181,6 +201,8 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 update_console_config(path, {"device": "/dev/video0"})
             with self.assertRaises(ValueError):
+                update_console_config(path, {"desired_z_m": 0.5})
+            with self.assertRaises(ValueError):
                 update_console_config(path, {"rc_override.channels.forward": "ch1"})
             with self.assertRaises(PermissionError):
                 update_console_config(path, {"enable_motion": True}, confirm_motion=False)
@@ -193,7 +215,47 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 update_console_config(path, {"tracking_vertical_mode": "alt_hold"})
             with self.assertRaises(ValueError):
+                update_console_config(path, {"tracking_vertical_mode": "visual_pid"})
+            with self.assertRaises(ValueError):
                 update_console_config(path, {"pre_align_axis_mode": "drift"})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_axis_mode": "lock_horizontal"})
+
+    def test_legacy_visual_pid_is_read_and_saved_as_disabled(self):
+        legacy_settings = SAMPLE_SETTINGS.replace(
+            'tracking_vertical_mode: "disabled"',
+            'tracking_vertical_mode: "visual_pid"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "settings.yaml"
+            path.write_text(legacy_settings, encoding="utf-8")
+
+            values = read_console_config(path)
+            updated = update_console_config(path, {"max_v_m_s": 0.5})
+            text = path.read_text(encoding="utf-8")
+
+        self.assertEqual(values["tracking_vertical_mode"], "disabled")
+        self.assertEqual(updated["tracking_vertical_mode"], "disabled")
+        self.assertIn('tracking_vertical_mode: "disabled"', text)
+        self.assertNotIn('tracking_vertical_mode: "visual_pid"', text)
+
+    def test_legacy_lock_horizontal_is_read_and_saved_as_small_correction(self):
+        legacy_settings = SAMPLE_SETTINGS.replace(
+            'pre_align_axis_mode: "small_correction"',
+            'pre_align_axis_mode: "lock_horizontal"',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "settings.yaml"
+            path.write_text(legacy_settings, encoding="utf-8")
+
+            values = read_console_config(path)
+            updated = update_console_config(path, {"max_v_m_s": 0.5})
+            text = path.read_text(encoding="utf-8")
+
+        self.assertEqual(values["pre_align_axis_mode"], "small_correction")
+        self.assertEqual(updated["pre_align_axis_mode"], "small_correction")
+        self.assertIn('pre_align_axis_mode: "small_correction"', text)
+        self.assertNotIn('pre_align_axis_mode: "lock_horizontal"', text)
 
     def test_docking_vertical_fields_enforce_ranges_and_hold_not_above_max(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -217,6 +279,26 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 update_console_config(path, {"pre_align_close_loss_hold_max_distance_m": 0.51})
             with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_offset_camera_x_m": -0.21})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_offset_camera_y_m": 0.21})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_tolerance_m": 0.001})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_tolerance_m": 0.051})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_release_hysteresis_m": 0.009})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"pre_align_docking_center_release_hysteresis_m": 0.51})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"docking_timeout_s": -1})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"docking_timeout_s": 601})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"docking_timeout_s": float("nan")})
+            with self.assertRaises(ValueError):
+                update_console_config(path, {"docking_timeout_s": float("inf")})
+            with self.assertRaises(ValueError):
                 update_console_config(
                     path,
                     {
@@ -230,10 +312,12 @@ class SurfaceConsoleConfigTests(unittest.TestCase):
                 {
                     "pre_align_buoyancy_hold_pwm": 2000,
                     "pre_align_down_pwm_max": 2000,
+                    "docking_timeout_s": 0,
                 },
             )
             self.assertEqual(updated["pre_align_buoyancy_hold_pwm"], 2000)
             self.assertEqual(updated["pre_align_down_pwm_max"], 2000)
+            self.assertEqual(updated["docking_timeout_s"], 0.0)
 
     def test_velocity_limit_fields_allow_one_meter_per_second_but_no_more(self):
         with tempfile.TemporaryDirectory() as tmpdir:

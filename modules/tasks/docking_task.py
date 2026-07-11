@@ -12,12 +12,26 @@ sys.path.insert(0, project_root)
 import time
 from modules.controller import path_follower, precision_docking
 from modules.controller.docking_vertical_controller import DockingVerticalController
-from modules.controller.motion_command import camera_state_to_body_error, motion_command_from_mapping
+from modules.controller.motion_command import (
+    camera_state_to_body_error,
+    camera_to_body_axes_are_safe,
+    motion_command_from_mapping,
+)
 from modules.controller.rc_override_mapper import RcOverrideMapper
 from modules.controller.visual_axis_policy import VisualAxisPolicy
 from modules.controller.visual_tracking_controller import VisualTrackingController
 from modules.perception.marker_tracker import validate_pose_quality
 from modules.state.state_estimator import ConstantVelocityEKF
+
+
+def _bounded_float_config(config, key, default, minimum, maximum):
+    try:
+        value = float((config or {}).get(key, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number") from None
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        raise ValueError(f"{key} must be between {minimum} and {maximum}")
+    return value
 
 
 class DockingTask:
@@ -62,7 +76,6 @@ class DockingTask:
         self.approach_ctrl = path_follower.PathFollower()
         self.precise_ctrl = precision_docking.PrecisionDockingController()
         self.tracking_ctrl = VisualTrackingController(
-            desired_z_m=tracking_config.get("desired_z_m", 0.8),
             max_v_m_s=tracking_config.get("max_v_m_s", 0.4),
             max_yaw_rate_deg_s=tracking_config.get("max_yaw_rate_deg_s", 25.0),
             kp_lateral=tracking_config.get("kp_lateral", 0.4),
@@ -91,6 +104,56 @@ class DockingTask:
             up_channel=self.rc_mapper.channels.get("up", "ch3"),
         )
         self.docking_vertical_ctrl = DockingVerticalController(tracking_config)
+        self.docking_timeout_s = _bounded_float_config(
+            tracking_config,
+            "docking_timeout_s",
+            180.0,
+            0.0,
+            600.0,
+        )
+        self.docking_center_offset_camera_x_m = _bounded_float_config(
+            tracking_config,
+            "pre_align_docking_center_offset_camera_x_m",
+            0.03,
+            -0.2,
+            0.2,
+        )
+        self.docking_center_offset_camera_y_m = _bounded_float_config(
+            tracking_config,
+            "pre_align_docking_center_offset_camera_y_m",
+            0.06,
+            -0.2,
+            0.2,
+        )
+        self.docking_center_tolerance_m = _bounded_float_config(
+            tracking_config,
+            "pre_align_docking_center_tolerance_m",
+            0.01,
+            0.002,
+            0.05,
+        )
+        self.docking_center_release_hysteresis_m = _bounded_float_config(
+            tracking_config,
+            "pre_align_docking_center_release_hysteresis_m",
+            0.05,
+            0.01,
+            0.5,
+        )
+        self.docking_center_release_distance_m = (
+            self.docking_vertical_ctrl.close_loss_hold_max_distance_m
+            + self.docking_center_release_hysteresis_m
+        )
+        offset_body = camera_state_to_body_error(
+            {
+                "x": self.docking_center_offset_camera_x_m,
+                "y": self.docking_center_offset_camera_y_m,
+                "z": 0.0,
+                "yaw": 0.0,
+            },
+            tracking_config,
+        )
+        self.docking_center_offset_forward_target_m = float(offset_body["forward_m"])
+        self.docking_center_offset_right_target_m = float(offset_body["right_m"])
         self.estimator = ConstantVelocityEKF(max_lost_frames=tracking_config.get("max_lost_frames", 10))
         self.start_charging_after_dock = bool(tracking_config.get("start_charging_after_dock", False))
         self.target_motion_mode = tracking_config.get("target_motion_mode", "stationary_child")
@@ -118,6 +181,7 @@ class DockingTask:
         )
         self._clear_dock_completion_state()
         self._clear_docking_lost_hold_state()
+        self._clear_docking_center_offset_state()
         # 状态机所需属性
         self.name = self.mission_mode
         self.status = "idle"
@@ -162,6 +226,7 @@ class DockingTask:
         self.last_failure_reason = ""
         self._clear_dock_completion_state()
         self._clear_docking_lost_hold_state()
+        self._clear_docking_center_offset_state()
         self.tracking_ctrl.reset()
         self.docking_vertical_ctrl.reset()
         self.estimator.reset()
@@ -181,6 +246,7 @@ class DockingTask:
             self._send_neutral_before_stop()
             self._clear_dock_completion_state()
             self._clear_docking_lost_hold_state()
+            self._clear_docking_center_offset_state()
             self.tracking_ctrl.reset()
             self.docking_vertical_ctrl.reset()
         
@@ -195,12 +261,13 @@ class DockingTask:
         if self.status != "running":
             return
 
-        # Tracking is allowed to run continuously. The 60s timeout only applies
+        # Tracking is allowed to run continuously. The configurable timeout only applies
         # after the operator explicitly engages docking/pre-align.
         if (
             self.mission_mode == self.MISSION_DOCKING
             and self.stage not in (self.STATE_DOCKED_HOLD, self.STATE_DOCKING_LOST_HOLD)
-            and time.time() - self.start_time > 60.0
+            and self.docking_timeout_s > 0.0
+            and time.time() - self.start_time > self.docking_timeout_s
         ):
             print("[DockingTask] ⏰ 任务超时，切换到失败状态")
             self.stage = self.STATE_FAILED
@@ -295,6 +362,7 @@ class DockingTask:
                 if self.stage == self.STATE_DOCKING_LOST_HOLD
                 else None
             ),
+            **self._docking_center_offset_status(),
             "manual_dock_confirmed": self.manual_dock_confirmed,
             "dock_completion_source": self.dock_completion_source,
             "dock_completion_time": self.dock_completion_time,
@@ -324,6 +392,7 @@ class DockingTask:
         self.last_valid_observation_time = None
         self._clear_dock_completion_state()
         self._clear_docking_lost_hold_state()
+        self._clear_docking_center_offset_state()
         self.tracking_ctrl.reset()
         self.docking_vertical_ctrl.reset()
         self.estimator.reset()
@@ -340,6 +409,7 @@ class DockingTask:
     def _handle_no_target(self):
         """处理目标丢失情况"""
         self._clear_docking_lost_hold_state()
+        self._clear_docking_center_offset_state()
         self.pre_dock_ready = False
         self.tracking_ready = False
         self.tracking_ctrl.reset()
@@ -479,6 +549,7 @@ class DockingTask:
             )
             if not self.filtered_state.get("has_recent_valid_observation"):
                 self.pre_dock_ready = False
+                self.tracking_ready = False
 
         if self.enable_motion:
             self._send_motion_command(self.last_command, rc_override=self.last_rc_override)
@@ -502,23 +573,65 @@ class DockingTask:
         if not state or state.get("status") == "lost":
             return self._handle_no_target()
 
-        base_command = self.tracking_ctrl.compute_command(state)
-        state.update(self.tracking_ctrl.pre_dock_diagnostics(state))
+        camera_center_geometry = self.tracking_ctrl.pre_dock_diagnostics(state)
+        control_state = self._apply_docking_center_offset(state, camera_center_geometry)
+        base_command = self.tracking_ctrl.compute_command(control_state)
+        state.update(self.tracking_ctrl.pre_dock_diagnostics(control_state))
+        offset_status = self._docking_center_offset_status()
+        state.update(offset_status)
+        base_command.update(offset_status)
         geometry_ready = bool(state.get("pre_dock_ready"))
-        self.tracking_ready = geometry_ready
+        if self.mission_mode == self.MISSION_DOCKING:
+            geometry_ready = (
+                self.docking_center_offset_active
+                and bool(state.get("pre_dock_recent_ok"))
+                and bool(state.get("pre_dock_valid_frames_ok"))
+                and bool(state.get("pre_dock_yaw_ok"))
+                and self.docking_center_offset_alignment_ok
+            )
+            state["pre_dock_ready"] = geometry_ready
+            if not self.docking_center_offset_active:
+                state["pre_dock_block_reason"] = "docking_center_offset_not_active"
+            elif not self.docking_center_offset_alignment_ok:
+                state["pre_dock_block_reason"] = "docking_center_offset_error_high"
+            elif geometry_ready:
+                state["pre_dock_block_reason"] = ""
+        self.tracking_ready = (
+            self._tracking_ready_from_diagnostics(state)
+            if self.mission_mode == self.MISSION_TRACKING
+            else geometry_ready
+        )
         base_command = self._gate_pre_align_vertical(base_command, state)
         self.last_command = self.axis_policy.apply(base_command, stage=self.stage)
         self.last_mavlink_command = motion_command_from_mapping(self.last_command).as_mavlink_body_ned()
+        bypass_min_active_axes = (
+            {"forward", "right"}
+            if self.mission_mode == self.MISSION_DOCKING and self.stage == self.STATE_PRE_ALIGN
+            else None
+        )
         self.last_rc_override = self.axis_policy.apply_rc_override(
-            self.rc_mapper.map_motion_command(self.last_command),
+            self.rc_mapper.map_motion_command(
+                self.last_command,
+                bypass_min_active_axes=bypass_min_active_axes,
+            ),
             stage=self.stage,
         )
 
         if self.mission_mode == self.MISSION_DOCKING and self.stage == self.STATE_PRE_ALIGN:
+            vertical_allowed = bool(self.last_command.get("pre_align_vertical_allowed", False))
+            target_approach_speed_m_s = (
+                self.docking_vertical_ctrl.target_approach_speed_m_s
+                if vertical_allowed
+                and not (
+                    self.docking_center_offset_active
+                    and self.docking_center_offset_alignment_ok
+                )
+                else 0.0
+            )
             vertical_status = self.docking_vertical_ctrl.update(
                 camera_vz_m_s=state.get("vz", 0.0),
-                desired_up_m_s=self.last_command.get("up_m_s", 0.0),
-                vertical_allowed=bool(self.last_command.get("pre_align_vertical_allowed", False)),
+                target_approach_speed_m_s=target_approach_speed_m_s,
+                vertical_allowed=vertical_allowed,
                 timestamp=state.get("timestamp", time.time()),
             )
             if self.output_backend == "rc_override" and self.rc_mapper.enabled:
@@ -561,6 +674,9 @@ class DockingTask:
 
         position_ok = bool(state.get("pre_dock_position_ok"))
         yaw_ok = bool(state.get("pre_dock_yaw_ok"))
+        offset_active = bool(state.get("pre_align_docking_center_offset_active"))
+        if offset_active:
+            position_ok = position_ok or bool(state.get("pre_align_camera_center_position_ok"))
         vertical_allowed = position_ok and yaw_ok
         command["pre_align_vertical_allowed"] = vertical_allowed
         command["pre_align_vertical_gated_reason"] = ""
@@ -571,6 +687,92 @@ class DockingTask:
         command["vz"] = 0.0
         command["pre_align_vertical_gated_reason"] = "position_not_centered" if not position_ok else "yaw_not_aligned"
         return command
+
+    def _apply_docking_center_offset(self, state, camera_center_geometry):
+        control_state = dict(state or {})
+        self.docking_center_camera_position_ok = bool(camera_center_geometry.get("pre_dock_position_ok"))
+        self.docking_center_camera_yaw_ok = bool(camera_center_geometry.get("pre_dock_yaw_ok"))
+
+        if self.docking_center_offset_active and self._should_release_docking_center_offset(state):
+            self.docking_center_offset_active = False
+            self.docking_center_offset_error_x_m = None
+            self.docking_center_offset_error_y_m = None
+            self.docking_center_offset_alignment_ok = False
+            self.docking_center_offset_position_ok = False
+            self.docking_center_offset_release_reason = "distance_above_release_threshold"
+
+        if not self.docking_center_offset_active and self._should_activate_docking_center_offset(
+            state,
+            camera_center_geometry,
+        ):
+            self.docking_center_offset_active = True
+            self.docking_center_offset_release_reason = ""
+
+        if self.docking_center_offset_active:
+            control_state["forward_m"] = (
+                float(state.get("forward_m", 0.0)) - self.docking_center_offset_forward_target_m
+            )
+            control_state["right_m"] = (
+                float(state.get("right_m", 0.0)) - self.docking_center_offset_right_target_m
+            )
+            self._update_docking_center_alignment(state)
+        else:
+            self.docking_center_offset_error_x_m = None
+            self.docking_center_offset_error_y_m = None
+            self.docking_center_offset_alignment_ok = False
+            self.docking_center_offset_position_ok = False
+        return control_state
+
+    def _should_release_docking_center_offset(self, state):
+        if not bool(state.get("has_valid_observation", state.get("has_recent_valid_observation", False))):
+            return False
+        try:
+            z_m = float(state.get("z"))
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(z_m) and z_m >= 0.0 and z_m > self.docking_center_release_distance_m
+
+    def _update_docking_center_alignment(self, state):
+        try:
+            camera_x_m = float(state.get("x"))
+            camera_y_m = float(state.get("y"))
+        except (TypeError, ValueError):
+            camera_x_m = float("nan")
+            camera_y_m = float("nan")
+
+        if not math.isfinite(camera_x_m) or not math.isfinite(camera_y_m):
+            self.docking_center_offset_error_x_m = None
+            self.docking_center_offset_error_y_m = None
+            self.docking_center_offset_alignment_ok = False
+            self.docking_center_offset_position_ok = False
+            return
+
+        self.docking_center_offset_error_x_m = camera_x_m - self.docking_center_offset_camera_x_m
+        self.docking_center_offset_error_y_m = camera_y_m - self.docking_center_offset_camera_y_m
+        self.docking_center_offset_alignment_ok = (
+            abs(self.docking_center_offset_error_x_m) <= self.docking_center_tolerance_m
+            and abs(self.docking_center_offset_error_y_m) <= self.docking_center_tolerance_m
+        )
+        self.docking_center_offset_position_ok = self.docking_center_offset_alignment_ok
+
+    def _should_activate_docking_center_offset(self, state, camera_center_geometry):
+        if self.mission_mode != self.MISSION_DOCKING or self.stage != self.STATE_PRE_ALIGN:
+            return False
+        if not bool(state.get("has_valid_observation", state.get("has_recent_valid_observation", False))):
+            return False
+        try:
+            z_m = float(state.get("z"))
+        except (TypeError, ValueError):
+            return False
+        return (
+            math.isfinite(z_m)
+            and z_m >= 0.0
+            and z_m <= self.docking_vertical_ctrl.close_loss_hold_max_distance_m
+            and bool(camera_center_geometry.get("pre_dock_recent_ok"))
+            and bool(camera_center_geometry.get("pre_dock_valid_frames_ok"))
+            and bool(camera_center_geometry.get("pre_dock_position_ok"))
+            and bool(camera_center_geometry.get("pre_dock_yaw_ok"))
+        )
 
     def engage_docking(self, source="surface"):
         if self.status != "running":
@@ -588,7 +790,9 @@ class DockingTask:
         self.start_time = time.time()
         self.search_start_time = None
         self.pre_dock_ready = False
-        self.tracking_ready = self.tracking_ctrl.is_pre_dock_ready(self.filtered_state)
+        self.tracking_ready = self._tracking_ready_from_diagnostics(
+            self.tracking_ctrl.pre_dock_diagnostics(self.filtered_state)
+        )
         up_channel = self.rc_mapper.channels.get("up", "ch3")
         initial_pwm = self.last_rc_override.get(up_channel, self.rc_mapper.neutral_pwm)
         self.docking_vertical_ctrl.reset(initial_pwm=initial_pwm)
@@ -605,6 +809,16 @@ class DockingTask:
             "tracking_ready": self.tracking_ready,
         }
 
+    @staticmethod
+    def _tracking_ready_from_diagnostics(diagnostics):
+        diagnostics = diagnostics or {}
+        return (
+            bool(diagnostics.get("pre_dock_recent_ok"))
+            and bool(diagnostics.get("pre_dock_valid_frames_ok"))
+            and bool(diagnostics.get("pre_dock_position_ok"))
+            and bool(diagnostics.get("pre_dock_yaw_ok"))
+        )
+
     def confirm_manual_dock(self, source="surface"):
         """Manually confirm docking after visual pre-alignment."""
         with self._output_lock:
@@ -618,6 +832,7 @@ class DockingTask:
             self.dock_completion_time = time.time()
             self.dock_completion_rejected_reason = ""
             self.stage = self.STATE_DOCKED_HOLD
+            self._clear_docking_center_offset_state()
             self.charging_start_requested = False
             self._hold_after_confirm()
             return self._manual_dock_result(True, "", source)
@@ -691,6 +906,34 @@ class DockingTask:
         self.docking_lost_hold_last_z_m = None
         self.docking_lost_hold_reason = ""
         self.docking_lost_hold_since = None
+
+    def _clear_docking_center_offset_state(self):
+        self.docking_center_offset_active = False
+        self.docking_center_camera_position_ok = False
+        self.docking_center_camera_yaw_ok = False
+        self.docking_center_offset_position_ok = False
+        self.docking_center_offset_error_x_m = None
+        self.docking_center_offset_error_y_m = None
+        self.docking_center_offset_alignment_ok = False
+        self.docking_center_offset_release_reason = ""
+
+    def _docking_center_offset_status(self):
+        return {
+            "pre_align_docking_center_offset_active": self.docking_center_offset_active,
+            "pre_align_docking_center_target_camera_x_m": self.docking_center_offset_camera_x_m,
+            "pre_align_docking_center_target_camera_y_m": self.docking_center_offset_camera_y_m,
+            "pre_align_docking_center_target_forward_m": self.docking_center_offset_forward_target_m,
+            "pre_align_docking_center_target_right_m": self.docking_center_offset_right_target_m,
+            "pre_align_camera_center_position_ok": self.docking_center_camera_position_ok,
+            "pre_align_camera_center_yaw_ok": self.docking_center_camera_yaw_ok,
+            "pre_align_docking_center_position_ok": self.docking_center_offset_position_ok,
+            "pre_align_docking_center_offset_error_x_m": self.docking_center_offset_error_x_m,
+            "pre_align_docking_center_offset_error_y_m": self.docking_center_offset_error_y_m,
+            "pre_align_docking_center_tolerance_m": self.docking_center_tolerance_m,
+            "pre_align_docking_center_offset_alignment_ok": self.docking_center_offset_alignment_ok,
+            "pre_align_docking_center_offset_release_distance_m": self.docking_center_release_distance_m,
+            "pre_align_docking_center_offset_release_reason": self.docking_center_offset_release_reason,
+        }
 
     def _annotate_state(self, state, has_valid_observation, now=None):
         state = dict(state or {})
@@ -772,6 +1015,8 @@ class DockingTask:
         if self.output_backend == "rc_override":
             self.rc_mapper.validate_for_motion(require_enabled=True)
         self.axis_policy.validate_for_motion()
+        if not camera_to_body_axes_are_safe(self.tracking_config):
+            raise RuntimeError("unsafe_camera_to_body_axis_mapping")
 
     def _search_target(self):
         """搜索目标阶段 - 当检测到位姿时自动切换到接近状态"""

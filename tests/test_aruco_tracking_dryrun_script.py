@@ -263,7 +263,6 @@ class ArucoTrackingDryRunScriptTests(unittest.TestCase):
 
     def test_lost_state_resets_controller_smoothing_before_reacquire(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             control_mode="pid",
             command_smoothing_alpha=0.5,
             pid_config={

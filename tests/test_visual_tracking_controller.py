@@ -7,7 +7,6 @@ from modules.controller.visual_tracking_controller import VisualTrackingControll
 class VisualTrackingControllerTests(unittest.TestCase):
     def test_compute_command_maps_camera_errors_to_limited_body_velocity(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             max_v_m_s=0.4,
             max_yaw_rate_deg_s=25.0,
             kp_lateral=2.0,
@@ -29,7 +28,6 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
     def test_pid_mode_uses_pid_outputs_and_reports_diagnostics(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             max_v_m_s=0.4,
             max_yaw_rate_deg_s=25.0,
             control_mode="pid",
@@ -51,11 +49,11 @@ class VisualTrackingControllerTests(unittest.TestCase):
             }
         )
 
-        self.assertAlmostEqual(command["forward_m_s"], 0.2)
+        self.assertAlmostEqual(command["forward_m_s"], 0.4)
         self.assertAlmostEqual(command["right_m_s"], -0.2)
         self.assertAlmostEqual(command["up_m_s"], 0.15)
         self.assertAlmostEqual(command["yaw_rate_rad_s"], -math.radians(10.0))
-        self.assertAlmostEqual(command["pid_forward_error"], 0.2)
+        self.assertAlmostEqual(command["pid_forward_error"], 1.0)
         self.assertAlmostEqual(command["pid_right_error"], -0.1)
         self.assertAlmostEqual(command["pid_up_error"], 0.05)
         self.assertAlmostEqual(command["pid_yaw_error"], -math.radians(10.0))
@@ -64,7 +62,6 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
     def test_centering_mapping_drives_forward_when_marker_is_above_image_center(self):
         controller = VisualTrackingController(
-            desired_z_m=0.5,
             max_v_m_s=0.4,
             control_mode="pid",
             camera_to_body={
@@ -94,17 +91,16 @@ class VisualTrackingControllerTests(unittest.TestCase):
         )
 
         self.assertEqual(centered_but_far["forward_m_s"], 0.0)
-        self.assertAlmostEqual(centered_but_far["up_m_s"], -0.3)
+        self.assertAlmostEqual(centered_but_far["up_m_s"], -0.4)
         self.assertEqual(centered_but_far["raw_forward_error_m"], 0.0)
-        self.assertAlmostEqual(centered_but_far["raw_up_error_m"], -0.3)
+        self.assertAlmostEqual(centered_but_far["raw_up_error_m"], -0.8)
         self.assertAlmostEqual(marker_above_center["forward_m_s"], 0.12)
-        self.assertEqual(marker_above_center["up_m_s"], 0.0)
+        self.assertEqual(marker_above_center["up_m_s"], -0.4)
         self.assertAlmostEqual(marker_below_center["forward_m_s"], -0.12)
-        self.assertEqual(marker_below_center["up_m_s"], 0.0)
+        self.assertEqual(marker_below_center["up_m_s"], -0.4)
 
     def test_deadband_suppresses_small_stationary_target_noise_before_pid(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             control_mode="pid",
             control_deadband_m=0.02,
             yaw_deadband_deg=2.0,
@@ -118,7 +114,7 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
         command = controller.compute_command(
             {
-                "forward_m": 0.815,
+                "forward_m": 0.015,
                 "right_m": -0.015,
                 "up_m": 0.015,
                 "yaw_error_deg": 1.5,
@@ -147,7 +143,6 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
     def test_command_smoothing_limits_single_frame_control_jumps(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             control_mode="pid",
             command_smoothing_alpha=0.5,
             pid_config={
@@ -165,14 +160,13 @@ class VisualTrackingControllerTests(unittest.TestCase):
             {"forward_m": 1.0, "right_m": 0.0, "up_m": 0.0, "yaw_error_deg": 0.0, "timestamp": 2.0}
         )
 
-        self.assertAlmostEqual(first["raw_motion_forward_m_s"], 0.2)
-        self.assertAlmostEqual(first["forward_m_s"], 0.1)
-        self.assertAlmostEqual(second["forward_m_s"], 0.15)
+        self.assertAlmostEqual(first["raw_motion_forward_m_s"], 0.4)
+        self.assertAlmostEqual(first["forward_m_s"], 0.2)
+        self.assertAlmostEqual(second["forward_m_s"], 0.3)
         self.assertEqual(first["command_smoothing_alpha"], 0.5)
 
     def test_pre_dock_ready_requires_distance_centering_and_yaw_tolerance(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             pre_dock_position_tolerance_m=0.05,
             pre_dock_distance_tolerance_m=0.05,
             pre_dock_yaw_tolerance_deg=5.0,
@@ -180,37 +174,36 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
         self.assertTrue(
             controller.is_pre_dock_ready(
-                {"x": 0.02, "y": -0.03, "z": 0.82, "yaw": 4.0, "has_valid_observation": True}
+                {"x": 0.02, "y": -0.03, "z": 0.02, "yaw": 4.0, "has_valid_observation": True}
             )
         )
         self.assertFalse(
             controller.is_pre_dock_ready(
-                {"x": 0.20, "y": -0.03, "z": 0.82, "yaw": 4.0, "has_valid_observation": True}
+                {"x": 0.20, "y": -0.03, "z": 0.02, "yaw": 4.0, "has_valid_observation": True}
             )
         )
         self.assertFalse(
             controller.is_pre_dock_ready(
-                {"x": 0.02, "y": -0.03, "z": 1.00, "yaw": 4.0, "has_valid_observation": True}
+                {"x": 0.02, "y": -0.03, "z": 0.20, "yaw": 4.0, "has_valid_observation": True}
             )
         )
         self.assertFalse(
             controller.is_pre_dock_ready(
-                {"x": 0.02, "y": -0.03, "z": 0.82, "yaw": 8.0, "has_valid_observation": True}
+                {"x": 0.02, "y": -0.03, "z": 0.02, "yaw": 8.0, "has_valid_observation": True}
             )
         )
 
     def test_pre_dock_ready_rejects_predicted_state_without_recent_observation(self):
-        controller = VisualTrackingController(desired_z_m=0.8)
+        controller = VisualTrackingController()
 
         self.assertFalse(
             controller.is_pre_dock_ready(
-                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "status": "predicted", "has_valid_observation": False}
+                {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0, "status": "predicted", "has_valid_observation": False}
             )
         )
 
     def test_pre_dock_ready_allows_short_predicted_state_with_recent_observation(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             min_pre_dock_valid_frames=3,
             pre_dock_recent_observation_max_age_s=0.5,
         )
@@ -220,7 +213,7 @@ class VisualTrackingControllerTests(unittest.TestCase):
                 {
                     "x": 0.0,
                     "y": 0.0,
-                    "z": 0.8,
+                    "z": 0.0,
                     "yaw": 0.0,
                     "status": "predicted",
                     "has_valid_observation": False,
@@ -233,7 +226,6 @@ class VisualTrackingControllerTests(unittest.TestCase):
 
     def test_pre_dock_diagnostics_report_blocking_reason(self):
         controller = VisualTrackingController(
-            desired_z_m=0.8,
             min_pre_dock_valid_frames=3,
             pre_dock_recent_observation_max_age_s=0.5,
         )

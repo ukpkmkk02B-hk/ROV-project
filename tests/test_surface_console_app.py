@@ -58,7 +58,7 @@ class SurfaceConsoleAppTests(unittest.TestCase):
     def _request_latest_frame(self, client, path="/api/latest-frame.jpg"):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "settings.yaml"
-            config_path.write_text("vision_tracking:\n  desired_z_m: 0.5\n", encoding="utf-8")
+            config_path.write_text("vision_tracking:\n  max_v_m_s: 0.4\n", encoding="utf-8")
             handler = make_handler(client, config_path, "127.0.0.1", 9002)
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)

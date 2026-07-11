@@ -35,18 +35,15 @@ const LABELS = {
     tracking: "跟踪 / tracking",
   },
   verticalMode: {
-    visual_pid: "视觉 PID / visual_pid",
     hold_captured_ch3: "保持捕获 ch3 / hold_captured_ch3",
   },
   preAlignMode: {
     full_control: "全轴控制 / full_control",
     small_correction: "小修正 / small_correction",
-    lock_horizontal: "锁定水平 / lock_horizontal",
   },
 };
 
 LABELS.verticalMode.disabled = "关闭升沉 / disabled";
-LABELS.verticalMode.visual_pid = "目标距离 / visual_pid";
 LABELS.verticalMode.hold_captured_ch3 = "保持捕获 ch3 / hold_captured_ch3";
 
 const rovButtons = Array.from(document.querySelectorAll("[data-rov]"));
@@ -203,6 +200,20 @@ function renderTaskStatus(currentTask, config, rov) {
   setText("dockingLostHoldCh3", formatNumber(currentTask.docking_lost_hold_ch3_pwm, 0, " PWM"));
   setText("dockingLostHoldReason", currentTask.docking_lost_hold_reason || "-");
   setText("dockingLostHoldWaiting", formatBool(currentTask.docking_lost_hold_waiting_reacquisition));
+  setText("dockingCenterOffsetActive", formatBool(currentTask.pre_align_docking_center_offset_active));
+  setClass("dockingCenterOffsetActive", currentTask.pre_align_docking_center_offset_active === true ? "ok" : "");
+  setText("dockingCenterTargetX", formatNumber(currentTask.pre_align_docking_center_target_camera_x_m, 3, " m"));
+  setText("dockingCenterTargetY", formatNumber(currentTask.pre_align_docking_center_target_camera_y_m, 3, " m"));
+  setText("dockingCenterTargetForward", formatNumber(currentTask.pre_align_docking_center_target_forward_m, 3, " m"));
+  setText("dockingCenterTargetRight", formatNumber(currentTask.pre_align_docking_center_target_right_m, 3, " m"));
+  setText("dockingCenterPositionOk", formatBool(currentTask.pre_align_docking_center_position_ok));
+  setText("dockingCenterErrorX", formatNumber(currentTask.pre_align_docking_center_offset_error_x_m, 3, " m"));
+  setText("dockingCenterErrorY", formatNumber(currentTask.pre_align_docking_center_offset_error_y_m, 3, " m"));
+  setText("dockingCenterTolerance", formatNumber(currentTask.pre_align_docking_center_tolerance_m, 3, " m"));
+  setText("dockingCenterAlignmentOk", formatBool(currentTask.pre_align_docking_center_offset_alignment_ok));
+  setClass("dockingCenterAlignmentOk", currentTask.pre_align_docking_center_offset_alignment_ok === true ? "ok" : "");
+  setText("dockingCenterReleaseDistance", formatNumber(currentTask.pre_align_docking_center_offset_release_distance_m, 3, " m"));
+  setText("dockingCenterReleaseReason", currentTask.pre_align_docking_center_offset_release_reason || "-");
   setText("preDockBlockReason", currentTask.filtered_state?.pre_dock_block_reason || "-");
   setText("lastMessage", formatTime(rov.last_message_time));
 }

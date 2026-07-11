@@ -1,8 +1,8 @@
+import math
 from pathlib import Path
 
 
 CONFIG_FIELDS = {
-    "desired_z_m": {"type": float, "min": 0.05, "max": 5.0},
     "max_v_m_s": {"type": float, "min": 0.0, "max": 1.0},
     "max_yaw_rate_deg_s": {"type": float, "min": 0.0, "max": 25.0},
     "min_marker_pixel_size_px": {"type": float, "min": 0.0, "max": 5000.0},
@@ -11,8 +11,8 @@ CONFIG_FIELDS = {
     "control_deadband_m": {"type": float, "min": 0.0, "max": 0.5},
     "yaw_deadband_deg": {"type": float, "min": 0.0, "max": 30.0},
     "command_smoothing_alpha": {"type": float, "min": 0.0, "max": 1.0},
-    "tracking_vertical_mode": {"type": str, "choices": {"disabled", "visual_pid", "hold_captured_ch3"}},
-    "pre_align_axis_mode": {"type": str, "choices": {"full_control", "small_correction", "lock_horizontal"}},
+    "tracking_vertical_mode": {"type": str, "choices": {"disabled", "hold_captured_ch3"}},
+    "pre_align_axis_mode": {"type": str, "choices": {"full_control", "small_correction"}},
     "pre_align_correction_scale": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_v_m_s": {"type": float, "min": 0.0, "max": 1.0},
     "pre_align_max_yaw_rate_deg_s": {"type": float, "min": 0.0, "max": 25.0},
@@ -22,6 +22,11 @@ CONFIG_FIELDS = {
     "pre_align_approach_speed_kp": {"type": float, "min": 0.0, "max": 5000.0},
     "pre_dock_approach_speed_tolerance_m_s": {"type": float, "min": 0.0, "max": 0.1},
     "pre_align_close_loss_hold_max_distance_m": {"type": float, "min": 0.05, "max": 0.5},
+    "pre_align_docking_center_offset_camera_x_m": {"type": float, "min": -0.2, "max": 0.2},
+    "pre_align_docking_center_offset_camera_y_m": {"type": float, "min": -0.2, "max": 0.2},
+    "pre_align_docking_center_tolerance_m": {"type": float, "min": 0.002, "max": 0.05},
+    "pre_align_docking_center_release_hysteresis_m": {"type": float, "min": 0.01, "max": 0.5},
+    "docking_timeout_s": {"type": float, "min": 0.0, "max": 600.0},
     "pid.forward.kp": {"type": float, "min": 0.0, "max": 5.0},
     "pid.right.kp": {"type": float, "min": 0.0, "max": 5.0},
     "pid.up.kp": {"type": float, "min": 0.0, "max": 5.0},
@@ -43,7 +48,12 @@ CONFIG_FIELDS = {
 
 def read_console_config(path):
     values = _read_vision_scalars(Path(path).read_text(encoding="utf-8"))
-    return {field: values[field] for field in CONFIG_FIELDS if field in values}
+    editable = {field: values[field] for field in CONFIG_FIELDS if field in values}
+    if editable.get("tracking_vertical_mode") == "visual_pid":
+        editable["tracking_vertical_mode"] = "disabled"
+    if editable.get("pre_align_axis_mode") == "lock_horizontal":
+        editable["pre_align_axis_mode"] = "small_correction"
+    return editable
 
 
 def update_console_config(path, updates, confirm_motion=False):
@@ -59,6 +69,11 @@ def update_console_config(path, updates, confirm_motion=False):
         raise PermissionError("enable_motion=true requires confirm_motion=true")
 
     path = Path(path)
+    existing = _read_vision_scalars(path.read_text(encoding="utf-8"))
+    if existing.get("tracking_vertical_mode") == "visual_pid":
+        normalized.setdefault("tracking_vertical_mode", "disabled")
+    if existing.get("pre_align_axis_mode") == "lock_horizontal":
+        normalized.setdefault("pre_align_axis_mode", "small_correction")
     merged = read_console_config(path)
     merged.update(normalized)
     hold_pwm = merged.get("pre_align_buoyancy_hold_pwm")
@@ -185,6 +200,8 @@ def _coerce_and_validate(field, value):
             raise ValueError(f"{field} must be a number")
         coerced = float(value)
 
+    if isinstance(coerced, (int, float)) and not math.isfinite(coerced):
+        raise ValueError(f"{field} must be finite")
     if "min" in spec and coerced < spec["min"]:
         raise ValueError(f"{field} must be >= {spec['min']}")
     if "max" in spec and coerced > spec["max"]:

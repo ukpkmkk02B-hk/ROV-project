@@ -35,10 +35,11 @@ class RcOverrideMapper:
     def neutral_channels(self):
         return {f"ch{i}": self.neutral_pwm for i in range(1, 9)}
 
-    def map_motion_command(self, command):
+    def map_motion_command(self, command, bypass_min_active_axes=None):
         if not self.enabled:
             return {}
         command = motion_command_from_mapping(command)
+        bypass_min_active_axes = set(bypass_min_active_axes or ())
         channels = self.neutral_channels()
         values = {
             "forward": (command.forward_m_s, self.pwm_per_m_s),
@@ -51,7 +52,9 @@ class RcOverrideMapper:
             if not channel:
                 continue
             sign = float(self.axis_signs.get(axis, 1.0))
-            offset = self._apply_min_active_offset(value * gain * sign)
+            offset = value * gain * sign
+            if axis not in bypass_min_active_axes:
+                offset = self._apply_min_active_offset(offset)
             channels[channel] = self._clamp_pwm(self.neutral_pwm + offset)
         return channels
 

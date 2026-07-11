@@ -1,7 +1,14 @@
 import argparse
 import importlib
 import json
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from modules.controller.motion_command import camera_to_body_axes_are_safe
 
 
 REQUIRED_MODULES_BY_MARKER = {
@@ -59,6 +66,8 @@ def run_preflight(config_path="config/settings.yaml", project_root=None, module_
     vision = settings.get("vision_tracking") or {}
     pixhawk = settings.get("pixhawk_comm") or {}
     marker_type = str(vision.get("marker_type", "")).lower()
+    if not camera_to_body_axes_are_safe(vision):
+        errors.append("unsafe_camera_to_body_axis_mapping")
     required_modules = REQUIRED_MODULES_BY_MARKER.get(marker_type, ["yaml"])
     for module_name in required_modules:
         try:
@@ -96,7 +105,6 @@ def run_preflight(config_path="config/settings.yaml", project_root=None, module_
             "camera_device": camera_device,
             "pixhawk_device": pixhawk_device,
             "calibration_file": str(calibration_path or calibration_file or ""),
-            "desired_z_m": vision.get("desired_z_m"),
             "enable_motion": bool(vision.get("enable_motion", False)),
             "output_backend": vision.get("output_backend"),
             "required_mode": vision.get("required_mode"),

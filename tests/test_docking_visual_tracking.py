@@ -126,9 +126,9 @@ class DockingVisualTrackingTests(unittest.TestCase):
     def test_dry_run_requires_consecutive_valid_observations_before_pre_dock_ready(self):
         module = import_docking_with_stubs()
         pose = {
-            "x": 0.01,
-            "y": -0.01,
-            "z": 0.80,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.15,
             "roll": 0.0,
             "pitch": 0.0,
             "yaw": 2.0,
@@ -141,7 +141,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "max_lost_frames": 3,
                 "min_pre_dock_valid_frames": 2,
                 "pre_dock_position_tolerance_m": 0.05,
@@ -154,6 +153,9 @@ class DockingVisualTrackingTests(unittest.TestCase):
             task.start()
             task.run()
             task.camera.poses.append(dict(pose, timestamp=10.1))
+            task.run()
+            self.assertFalse(task.get_status()["pre_dock_ready"])
+            task.camera.poses.append(dict(pose, x=0.03, y=0.06, timestamp=10.2))
             task.run()
         status = task.get_status()
 
@@ -182,7 +184,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="tracking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "min_pre_dock_valid_frames": 1,
                 "pre_dock_position_tolerance_m": 0.05,
                 "pre_dock_distance_tolerance_m": 0.05,
@@ -205,6 +206,28 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertIn("control_cmd", status)
         self.assertIn("rc_override", status)
 
+    def test_tracking_ready_ignores_distance_but_requires_observation_position_and_yaw(self):
+        module = import_docking_with_stubs()
+        diagnostics = {
+            "pre_dock_recent_ok": True,
+            "pre_dock_valid_frames_ok": True,
+            "pre_dock_position_ok": True,
+            "pre_dock_distance_ok": False,
+            "pre_dock_yaw_ok": True,
+        }
+
+        self.assertTrue(module.DockingTask._tracking_ready_from_diagnostics(diagnostics))
+        for key in (
+            "pre_dock_recent_ok",
+            "pre_dock_valid_frames_ok",
+            "pre_dock_position_ok",
+            "pre_dock_yaw_ok",
+        ):
+            with self.subTest(key=key):
+                blocked = dict(diagnostics)
+                blocked[key] = False
+                self.assertFalse(module.DockingTask._tracking_ready_from_diagnostics(blocked))
+
     def test_engage_docking_promotes_tracking_without_clearing_state(self):
         module = import_docking_with_stubs()
         pose = {
@@ -223,7 +246,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="tracking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "min_pre_dock_valid_frames": 1,
             },
         )
@@ -238,6 +260,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
 
         status = task.get_status()
         self.assertTrue(result["accepted"])
+        self.assertTrue(result["tracking_ready"])
         self.assertEqual(status["name"], "docking")
         self.assertEqual(status["mission_mode"], "docking")
         self.assertEqual(status["stage"], module.DockingTask.STATE_PRE_ALIGN)
@@ -264,7 +287,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="tracking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "min_pre_dock_valid_frames": 1,
             },
         )
@@ -285,6 +307,35 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertNotEqual(task.stage, module.DockingTask.STATE_FAILED)
         self.assertFalse(pixhawk.stopped)
 
+    def test_docking_timeout_uses_configured_limit_and_zero_disables_it(self):
+        module = import_docking_with_stubs()
+        timed_task = self._make_vertical_docking_task(module, docking_timeout_s=2)
+        disabled_task = self._make_vertical_docking_task(module, docking_timeout_s=0)
+
+        for task in (timed_task, disabled_task):
+            task.status = "running"
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task.start_time = 0.0
+
+        with patch("builtins.print"), patch.object(module.time, "time", return_value=3.0):
+            timed_task.run()
+            disabled_task.run()
+
+        self.assertEqual(timed_task.status, "failed")
+        self.assertEqual(timed_task.stage, module.DockingTask.STATE_FAILED)
+        self.assertNotEqual(disabled_task.status, "failed")
+        self.assertNotEqual(disabled_task.stage, module.DockingTask.STATE_FAILED)
+
+    def test_docking_timeout_config_rejects_values_outside_zero_to_six_hundred(self):
+        module = import_docking_with_stubs()
+
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(module, docking_timeout_s=-1)
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(module, docking_timeout_s=601)
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(module, docking_timeout_s=float("nan"))
+
     def test_engage_docking_slew_starts_from_latest_tracking_ch3(self):
         module = import_docking_with_stubs()
         task = module.DockingTask(
@@ -295,7 +346,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             tracking_config={
                 "enable_motion": False,
                 "output_backend": "rc_override",
-                "desired_z_m": 0.5,
                 "min_pre_dock_valid_frames": 1,
                 "pre_align_buoyancy_hold_pwm": 1600,
                 "pre_align_down_pwm_max": 1700,
@@ -328,7 +378,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
             task._track(dict(state, timestamp=10.05))
 
         self.assertTrue(result["accepted"])
-        self.assertEqual(task.last_rc_override["ch3"], 1600)
+        self.assertEqual(task.last_rc_override["ch3"], 1605)
 
     def test_engage_docking_rejects_real_motion_on_non_rc_backend(self):
         module = import_docking_with_stubs()
@@ -381,7 +431,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
             pixhawk=pixhawk,
             state_machine=FakeStateMachine(),
             mission_mode="tracking",
-            tracking_config={"enable_motion": False, "desired_z_m": 0.8},
+            tracking_config={"enable_motion": False},
         )
 
         with patch("builtins.print"), patch.object(module.time, "time", return_value=61.0):
@@ -406,6 +456,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
                 "enable_motion": True,
                 "required_mode": "MANUAL",
                 "output_backend": "rc_override",
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
                 "rc_override": {
                     "enabled": True,
                     "channels": {
@@ -452,7 +503,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
             pixhawk=FakePixhawk(),
             state_machine=FakeStateMachine(),
             mission_mode="tracking",
-            tracking_config={"enable_motion": False, "desired_z_m": 0.8},
+            tracking_config={"enable_motion": False},
         )
 
         with patch("builtins.print"):
@@ -490,7 +541,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
             pixhawk=FakePixhawk(),
             state_machine=state_machine,
             mission_mode="tracking",
-            tracking_config={"enable_motion": False, "desired_z_m": 0.8, "min_pre_dock_valid_frames": 1},
+            tracking_config={"enable_motion": False, "min_pre_dock_valid_frames": 1},
         )
 
         with patch("builtins.print"):
@@ -698,7 +749,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
                 "enable_motion": True,
                 "required_mode": "MANUAL",
                 "output_backend": "rc_override",
-                "desired_z_m": 0.8,
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
                 "rc_override": {
                     "enabled": True,
                     "channels": {
@@ -723,6 +774,48 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(task.stage, module.DockingTask.STATE_TRACK)
         self.assertEqual(task.get_status()["filtered_state"]["status"], "tracking")
 
+    def test_no_new_pose_expiry_clears_ready_without_changing_last_rc(self):
+        module = import_docking_with_stubs()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=FakePixhawk(),
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={
+                "enable_motion": False,
+                "min_pre_dock_valid_frames": 1,
+                "pre_dock_recent_observation_max_age_s": 0.5,
+            },
+        )
+        task.status = "running"
+        task.stage = module.DockingTask.STATE_TRACK
+        task.valid_observation_count = 1
+        task.last_valid_observation_time = 100.0
+        task.filtered_state = {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.8,
+            "status": "tracking",
+            "timestamp": 100.0,
+        }
+        task.tracking_ready = True
+        task.pre_dock_ready = True
+        task.last_rc_override = {"ch3": 1600, "ch5": 1490}
+        previous_rc = dict(task.last_rc_override)
+
+        task._handle_no_new_pose(now=100.2)
+        self.assertTrue(task.tracking_ready)
+        self.assertTrue(task.pre_dock_ready)
+        self.assertEqual(task.last_rc_override, previous_rc)
+
+        task._handle_no_new_pose(now=100.6)
+        self.assertFalse(task.tracking_ready)
+        self.assertFalse(task.pre_dock_ready)
+        self.assertEqual(task.last_rc_override, previous_rc)
+        engage = task.engage_docking(source="unit_test")
+        self.assertFalse(engage["accepted"])
+        self.assertEqual(engage["reason"], "recent_observation_expired")
+
     def test_invalid_pose_while_target_visible_keeps_last_rc_override(self):
         module = import_docking_with_stubs()
         valid_pose = {
@@ -745,7 +838,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
                 "enable_motion": True,
                 "required_mode": "MANUAL",
                 "output_backend": "rc_override",
-                "desired_z_m": 0.8,
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
                 "rc_override": {
                     "enabled": True,
                     "channels": {
@@ -792,7 +885,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
                 "enable_motion": True,
                 "required_mode": "MANUAL",
                 "output_backend": "rc_override",
-                "desired_z_m": 0.8,
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
                 "rc_override": {
                     "enabled": True,
                     "channels": {
@@ -851,7 +944,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "min_pre_dock_valid_frames": 1,
                 "pre_dock_recent_observation_max_age_s": 0.5,
             },
@@ -859,10 +951,11 @@ class DockingVisualTrackingTests(unittest.TestCase):
         task.valid_observation_count = 1
         task.last_valid_observation_time = 100.0
         task.stage = module.DockingTask.STATE_PRE_ALIGN
+        task.docking_center_offset_active = True
 
         with patch.object(module.time, "time", return_value=100.2), patch("builtins.print"):
             state = task._annotate_state(
-                {"x": 0.0, "y": 0.0, "z": 0.8, "yaw": 0.0, "status": "predicted", "lost_frames": 1},
+                {"x": 0.03, "y": 0.06, "z": 0.10, "yaw": 0.0, "status": "predicted", "lost_frames": 1},
                 has_valid_observation=False,
             )
             task._track(state)
@@ -878,7 +971,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "min_pre_dock_valid_frames": 1,
                 "pre_dock_recent_observation_max_age_s": 0.5,
             },
@@ -903,7 +995,11 @@ class DockingVisualTrackingTests(unittest.TestCase):
             pixhawk=pixhawk,
             state_machine=FakeStateMachine(),
             mission_mode="tracking",
-            tracking_config={"enable_motion": True, "required_mode": "MANUAL"},
+            tracking_config={
+                "enable_motion": True,
+                "required_mode": "MANUAL",
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
+            },
         )
 
         with patch("builtins.print"):
@@ -974,7 +1070,11 @@ class DockingVisualTrackingTests(unittest.TestCase):
             pixhawk=pixhawk,
             state_machine=state_machine,
             mission_mode="tracking",
-            tracking_config={"enable_motion": True, "required_mode": "MANUAL"},
+            tracking_config={
+                "enable_motion": True,
+                "required_mode": "MANUAL",
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
+            },
         )
 
         with patch("builtins.print"), patch.object(module.time, "sleep", return_value=None):
@@ -1018,6 +1118,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
                 "enable_motion": True,
                 "required_mode": "MANUAL",
                 "allow_auto_arm_on_start": True,
+                "camera_to_body": {"forward_axis": "y", "right_axis": "x", "up_axis": "z"},
             },
         )
 
@@ -1027,6 +1128,55 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertEqual(pixhawk.events, ["mode:MANUAL", "arm"])
         self.assertEqual(pixhawk.mode_calls, ["MANUAL"])
         self.assertEqual(pixhawk.arm_calls, 1)
+
+    def test_motion_enabled_rejects_missing_or_unsafe_camera_axis_mapping_before_mode_change(self):
+        module = import_docking_with_stubs()
+        unsafe_configs = (
+            {},
+            {"forward_axis": "z", "right_axis": "x", "up_axis": "y"},
+            {"forward_axis": "x", "right_axis": "y", "up_axis": "z"},
+        )
+
+        for mapping in unsafe_configs:
+            with self.subTest(mapping=mapping):
+                pixhawk = FakePixhawk()
+                task = module.DockingTask(
+                    camera=FakeCamera([]),
+                    pixhawk=pixhawk,
+                    state_machine=FakeStateMachine(),
+                    mission_mode="tracking",
+                    tracking_config={
+                        "enable_motion": True,
+                        "required_mode": "MANUAL",
+                        "camera_to_body": mapping,
+                    },
+                )
+
+                with patch("builtins.print"):
+                    task.start()
+
+                self.assertEqual(task.status, "failed")
+                self.assertEqual(task.last_failure_reason, "unsafe_camera_to_body_axis_mapping")
+                self.assertEqual(pixhawk.mode_calls, [])
+                self.assertEqual(pixhawk.arm_calls, 0)
+
+    def test_dry_run_allows_missing_camera_axis_mapping(self):
+        module = import_docking_with_stubs()
+        pixhawk = FakePixhawk()
+        task = module.DockingTask(
+            camera=FakeCamera([]),
+            pixhawk=pixhawk,
+            state_machine=FakeStateMachine(),
+            mission_mode="tracking",
+            tracking_config={"enable_motion": False},
+        )
+
+        with patch("builtins.print"):
+            task.start()
+
+        self.assertEqual(task.status, "running")
+        self.assertEqual(pixhawk.mode_calls, [])
+        self.assertEqual(pixhawk.arm_calls, 0)
 
     def test_rc_override_backend_requires_explicit_mapping_before_motion(self):
         module = import_docking_with_stubs()
@@ -1250,7 +1400,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="tracking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "output_backend": "rc_override",
                 "rc_override": {
                     "enabled": True,
@@ -1294,7 +1443,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="tracking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.8,
                 "output_backend": "rc_override",
                 "rc_override": {
                     "enabled": True,
@@ -1364,7 +1512,7 @@ class DockingVisualTrackingTests(unittest.TestCase):
         self.assertFalse(result["accepted"])
         self.assertEqual(result["reason"], "final_rc_unavailable")
 
-    def test_pre_align_lock_horizontal_keeps_vertical_only(self):
+    def test_legacy_lock_horizontal_runtime_config_falls_back_to_small_correction(self):
         module = import_docking_with_stubs()
         task = module.DockingTask(
             camera=FakeCamera([]),
@@ -1372,7 +1520,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             state_machine=FakeStateMachine(),
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.5,
                 "pre_align_axis_mode": "lock_horizontal",
                 "camera_to_body": {
                     "forward_axis": "y",
@@ -1399,6 +1546,8 @@ class DockingVisualTrackingTests(unittest.TestCase):
             task.stage = module.DockingTask.STATE_PRE_ALIGN
             task._track(state)
 
+        self.assertEqual(task.axis_policy.pre_align_axis_mode, "small_correction")
+        self.assertEqual(task.axis_policy.pre_align_mode_rejected_reason, "invalid_pre_align_axis_mode")
         self.assertEqual(task.last_command["forward_m_s"], 0.0)
         self.assertEqual(task.last_command["right_m_s"], 0.0)
         self.assertEqual(task.last_command["yaw_rate_rad_s"], 0.0)
@@ -1413,7 +1562,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="docking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.5,
                 "min_pre_dock_valid_frames": 1,
                 "pre_dock_position_tolerance_m": 0.05,
                 "pre_dock_distance_tolerance_m": 0.05,
@@ -1466,7 +1614,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
             mission_mode="docking",
             tracking_config={
                 "enable_motion": False,
-                "desired_z_m": 0.5,
                 "min_pre_dock_valid_frames": 1,
                 "pre_dock_position_tolerance_m": 0.05,
                 "pre_dock_distance_tolerance_m": 0.05,
@@ -1546,11 +1693,21 @@ class DockingVisualTrackingTests(unittest.TestCase):
     def test_high_approach_speed_blocks_pre_dock_ready(self):
         module = import_docking_with_stubs()
         task = self._make_vertical_docking_task(module)
-        state = self._vertical_state(up_m=-0.5, vz=-0.05, timestamp=10.0)
+        state = self._docking_center_offset_state(
+            x=0.03,
+            y=0.06,
+            z=0.10,
+            forward_m=-0.06,
+            right_m=0.03,
+            up_m=-0.10,
+            timestamp=10.1,
+        )
+        state["vz"] = -0.10
 
         with patch("builtins.print"):
             task.start()
             task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
             task._track(state)
 
         self.assertTrue(task.tracking_ready)
@@ -1561,17 +1718,361 @@ class DockingVisualTrackingTests(unittest.TestCase):
     def test_non_finite_approach_speed_forces_neutral_docking_ch3(self):
         module = import_docking_with_stubs()
         task = self._make_vertical_docking_task(module)
-        state = self._vertical_state(up_m=-0.5, vz=float("nan"), timestamp=10.0)
+        state = self._docking_center_offset_state(
+            x=0.03,
+            y=0.06,
+            z=0.10,
+            forward_m=-0.06,
+            right_m=0.03,
+            up_m=-0.10,
+            timestamp=10.1,
+        )
+        state["vz"] = float("nan")
 
         with patch("builtins.print"):
             task.start()
             task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
             task._track(state)
 
         self.assertEqual(task.last_rc_override["ch3"], 1500)
         self.assertFalse(task.pre_dock_ready)
         self.assertEqual(task.filtered_state["pre_dock_block_reason"], "approach_speed_invalid")
         self.assertFalse(task.filtered_state["pre_align_input_valid"])
+
+    def test_tracking_near_camera_center_does_not_apply_docking_center_offset(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+        state = self._docking_center_offset_state()
+
+        with patch("builtins.print"):
+            task.start()
+            task.mission_mode = module.DockingTask.MISSION_TRACKING
+            task.name = module.DockingTask.MISSION_TRACKING
+            task.stage = module.DockingTask.STATE_TRACK
+            task._track(state)
+
+        self.assertFalse(task.get_status()["pre_align_docking_center_offset_active"])
+        self.assertEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["right_m_s"], 0.0)
+
+    def test_docking_center_offset_configuration_is_validated_before_task_start(self):
+        module = import_docking_with_stubs()
+
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(
+                module,
+                pre_align_docking_center_offset_camera_x_m=0.21,
+            )
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(
+                module,
+                pre_align_docking_center_offset_camera_y_m=float("nan"),
+            )
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(
+                module,
+                pre_align_docking_center_tolerance_m=0.001,
+            )
+        with self.assertRaises(ValueError):
+            self._make_vertical_docking_task(
+                module,
+                pre_align_docking_center_release_hysteresis_m=0.501,
+            )
+
+    def test_docking_above_threshold_keeps_camera_center_target(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+        state = self._docking_center_offset_state(z=0.16, up_m=-0.16)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(state)
+
+        self.assertFalse(task.get_status()["pre_align_docking_center_offset_active"])
+        self.assertEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["right_m_s"], 0.0)
+
+    def test_near_camera_center_moves_left_image_up_while_continuing_descent(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(
+            module,
+            rc_override={
+                "enabled": True,
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 1000,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "axis_signs": {"forward": -1.0, "right": -1.0, "up": -1.0},
+            },
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+
+        status = task.get_status()
+        self.assertTrue(status["pre_align_docking_center_offset_active"])
+        self.assertAlmostEqual(status["pre_align_docking_center_target_camera_x_m"], 0.03)
+        self.assertAlmostEqual(status["pre_align_docking_center_target_camera_y_m"], 0.06)
+        self.assertAlmostEqual(status["pre_align_docking_center_target_forward_m"], -0.06)
+        self.assertAlmostEqual(status["pre_align_docking_center_target_right_m"], 0.03)
+        self.assertGreater(task.last_command["forward_m_s"], 0.0)
+        self.assertLess(task.last_command["right_m_s"], 0.0)
+        self.assertLess(task.last_rc_override["ch5"], 1500)
+        self.assertGreater(task.last_rc_override["ch6"], 1500)
+        self.assertTrue(task.last_command["pre_align_vertical_allowed"])
+        self.assertGreater(task.last_command["pre_align_target_approach_speed_m_s"], 0.0)
+        self.assertGreater(task.last_rc_override["ch3"], 1500)
+        self.assertFalse(task.pre_dock_ready)
+
+    def test_docking_center_offset_converges_at_camera_right_down_target(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+            task._track(
+                self._docking_center_offset_state(
+                    x=0.03,
+                    y=0.06,
+                    z=0.05,
+                    forward_m=-0.06,
+                    right_m=0.03,
+                    up_m=-0.05,
+                    timestamp=10.1,
+                )
+            )
+
+        self.assertTrue(task.get_status()["pre_align_docking_center_offset_active"])
+        self.assertTrue(task.filtered_state["pre_align_docking_center_position_ok"])
+        self.assertTrue(task.filtered_state["pre_align_docking_center_offset_alignment_ok"])
+        self.assertEqual(task.last_command["pre_align_target_approach_speed_m_s"], 0.0)
+        self.assertTrue(task.pre_dock_ready)
+        self.assertEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["right_m_s"], 0.0)
+        self.assertEqual(task.last_rc_override["ch5"], 1500)
+        self.assertEqual(task.last_rc_override["ch6"], 1500)
+
+    def test_generic_position_tolerance_cannot_finish_docking_center_offset_early(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+            task._track(
+                self._docking_center_offset_state(
+                    y=0.011,
+                    z=0.05,
+                    forward_m=-0.011,
+                    up_m=-0.05,
+                    timestamp=10.1,
+                )
+            )
+
+        state = task.filtered_state
+        self.assertTrue(state["pre_dock_position_ok"])
+        self.assertAlmostEqual(state["pre_align_docking_center_offset_error_x_m"], -0.03)
+        self.assertAlmostEqual(state["pre_align_docking_center_offset_error_y_m"], -0.049)
+        self.assertFalse(state["pre_align_docking_center_offset_alignment_ok"])
+        self.assertFalse(task.pre_dock_ready)
+        self.assertEqual(state["pre_dock_block_reason"], "docking_center_offset_error_high")
+        confirm_result = task.confirm_manual_dock(source="unit_test")
+        self.assertFalse(confirm_result["accepted"])
+        self.assertEqual(confirm_result["reason"], "pre_dock_not_ready")
+
+    def test_high_approach_speed_still_blocks_ready_after_offset_alignment(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+            aligned = self._docking_center_offset_state(
+                x=0.03,
+                y=0.06,
+                z=0.05,
+                forward_m=-0.06,
+                right_m=0.03,
+                up_m=-0.05,
+                timestamp=10.1,
+            )
+            aligned["vz"] = -0.1
+            task._track(aligned)
+
+        self.assertTrue(task.filtered_state["pre_align_docking_center_offset_alignment_ok"])
+        self.assertFalse(task.pre_dock_ready)
+        self.assertEqual(task.filtered_state["pre_dock_block_reason"], "approach_speed_high")
+
+    def test_docking_center_offset_latches_across_threshold_and_close_loss_reacquire(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+            task._track(self._docking_center_offset_state(z=0.18, up_m=-0.18, timestamp=10.1))
+            self.assertTrue(task.docking_center_offset_active)
+            task.last_pose = {"z": 0.10}
+            task._enter_close_target_loss_hold(now=11.0)
+            self.assertTrue(task.docking_center_offset_active)
+            self.assertEqual(task.stage, module.DockingTask.STATE_DOCKING_LOST_HOLD)
+            self.assertEqual(task.last_rc_override["ch3"], 1600)
+            self.assertEqual(task.last_rc_override["ch5"], 1500)
+            self.assertEqual(task.last_rc_override["ch6"], 1500)
+            task._resume_pre_align_after_target_reacquired()
+
+        self.assertTrue(task.docking_center_offset_active)
+
+        with patch("builtins.print"):
+            task.reset()
+        self.assertFalse(task.docking_center_offset_active)
+
+    def test_docking_center_offset_releases_only_after_hysteresis_distance(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state(z=0.15, up_m=-0.15))
+            self.assertTrue(task.docking_center_offset_active)
+
+            task._track(self._docking_center_offset_state(z=0.20, up_m=-0.20, timestamp=10.1))
+            self.assertTrue(task.docking_center_offset_active)
+
+            task._track(self._docking_center_offset_state(z=0.201, up_m=-0.201, timestamp=10.2))
+
+        state = task.filtered_state
+        self.assertFalse(task.docking_center_offset_active)
+        self.assertAlmostEqual(state["pre_align_docking_center_offset_release_distance_m"], 0.20)
+        self.assertEqual(
+            state["pre_align_docking_center_offset_release_reason"],
+            "distance_above_release_threshold",
+        )
+        self.assertEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertEqual(task.last_command["right_m_s"], 0.0)
+
+        with patch("builtins.print"):
+            task._track(self._docking_center_offset_state(z=0.15, up_m=-0.15, timestamp=10.3))
+
+        self.assertTrue(task.docking_center_offset_active)
+        self.assertEqual(task.filtered_state["pre_align_docking_center_offset_release_reason"], "")
+
+    def test_docking_center_offset_waits_for_camera_center_and_yaw_alignment(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(module)
+        off_center = self._docking_center_offset_state(forward_m=0.12)
+        yaw_misaligned = self._docking_center_offset_state(timestamp=10.1)
+        yaw_misaligned["yaw_error_deg"] = 10.0
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(off_center)
+            self.assertFalse(task.docking_center_offset_active)
+            task._track(yaw_misaligned)
+
+        self.assertFalse(task.docking_center_offset_active)
+
+    def test_docking_center_offset_waits_for_required_valid_frames(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(
+            module,
+            min_pre_dock_valid_frames=3,
+        )
+        state = self._docking_center_offset_state(forward_m=0.12)
+        state["pre_dock_valid_frame_count"] = 1
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(state)
+
+        self.assertFalse(task.docking_center_offset_active)
+
+    def test_legacy_lock_horizontal_does_not_block_offset_correction_or_descent(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(
+            module,
+            pre_align_axis_mode="lock_horizontal",
+        )
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(self._docking_center_offset_state())
+
+        self.assertTrue(task.docking_center_offset_active)
+        self.assertEqual(task.axis_policy.pre_align_axis_mode, "small_correction")
+        self.assertNotEqual(task.last_command["forward_m_s"], 0.0)
+        self.assertNotEqual(task.last_command["right_m_s"], 0.0)
+        self.assertTrue(task.last_command["pre_align_vertical_allowed"])
+        self.assertEqual(task.last_command["pre_align_target_approach_speed_m_s"], 0.03)
+
+    def test_docking_ready_requires_active_aligned_center_offset_even_with_large_distance_tolerance(self):
+        module = import_docking_with_stubs()
+        task = self._make_vertical_docking_task(
+            module,
+            pre_dock_distance_tolerance_m=1.0,
+        )
+        far_centered = self._docking_center_offset_state(z=0.5, up_m=-0.5)
+
+        with patch("builtins.print"):
+            task.start()
+            task.stage = module.DockingTask.STATE_PRE_ALIGN
+            task._track(far_centered)
+            confirm = task.confirm_manual_dock(source="unit_test")
+
+        self.assertFalse(task.docking_center_offset_active)
+        self.assertFalse(task.pre_dock_ready)
+        self.assertEqual(task.filtered_state["pre_dock_block_reason"], "docking_center_offset_not_active")
+        self.assertFalse(confirm["accepted"])
+
+    def test_docking_horizontal_pwm_bypasses_global_minimum_and_keeps_scale_effective(self):
+        module = import_docking_with_stubs()
+        rc_override = {
+            "enabled": True,
+            "neutral_pwm": 1500,
+            "min_pwm": 1400,
+            "max_pwm": 1600,
+            "pwm_per_m_s": 250,
+            "pwm_per_rad_s": 120,
+            "min_active_pwm_offset": 30,
+            "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+            "axis_signs": {"forward": -1.0, "right": -1.0, "up": -1.0},
+        }
+        low = self._make_vertical_docking_task(
+            module,
+            pre_align_correction_scale=0.25,
+            rc_override=rc_override,
+        )
+        high = self._make_vertical_docking_task(
+            module,
+            pre_align_correction_scale=1.0,
+            rc_override=rc_override,
+        )
+
+        with patch("builtins.print"):
+            for task in (low, high):
+                task.start()
+                task.stage = module.DockingTask.STATE_PRE_ALIGN
+                task._track(self._docking_center_offset_state())
+
+        low_forward_offset = abs(low.last_rc_override["ch5"] - 1500)
+        high_forward_offset = abs(high.last_rc_override["ch5"] - 1500)
+        self.assertGreater(low_forward_offset, 0)
+        self.assertLess(low_forward_offset, 30)
+        self.assertGreater(high_forward_offset, low_forward_offset)
 
     def test_docked_hold_ignores_marker_loss_and_docking_timeout(self):
         module = import_docking_with_stubs()
@@ -1604,7 +2105,6 @@ class DockingVisualTrackingTests(unittest.TestCase):
         config = {
             "enable_motion": False,
             "output_backend": "rc_override",
-            "desired_z_m": 0.5,
             "min_pre_dock_valid_frames": 1,
             "pre_align_buoyancy_hold_pwm": 1600,
             "pre_align_down_pwm_max": 1700,
@@ -1614,7 +2114,9 @@ class DockingVisualTrackingTests(unittest.TestCase):
             "pre_align_max_v_m_s": 0.05,
             "camera_to_body": {
                 "forward_axis": "y",
+                "forward_sign": -1.0,
                 "right_axis": "x",
+                "right_sign": 1.0,
                 "up_axis": "z",
                 "up_sign": -1.0,
             },
@@ -1643,6 +2145,33 @@ class DockingVisualTrackingTests(unittest.TestCase):
             "vz": vz,
             "status": "tracking",
             "timestamp": timestamp,
+            "has_recent_valid_observation": True,
+            "latest_pose_age_s": 0.1,
+            "pre_dock_valid_frame_count": 1,
+        }
+
+    @staticmethod
+    def _docking_center_offset_state(
+        x=0.0,
+        y=0.0,
+        z=0.15,
+        forward_m=0.0,
+        right_m=0.0,
+        up_m=-0.15,
+        timestamp=10.0,
+    ):
+        return {
+            "x": x,
+            "y": y,
+            "z": z,
+            "forward_m": forward_m,
+            "right_m": right_m,
+            "up_m": up_m,
+            "yaw_error_deg": 0.0,
+            "vz": 0.0,
+            "status": "tracking",
+            "timestamp": timestamp,
+            "has_valid_observation": True,
             "has_recent_valid_observation": True,
             "latest_pose_age_s": 0.1,
             "pre_dock_valid_frame_count": 1,

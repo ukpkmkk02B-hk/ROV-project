@@ -19,7 +19,6 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
                 "tracking start",
                 "tracking stop",
                 "tracking mode disabled",
-                "tracking mode visual_pid",
                 "tracking capture ch3",
                 "tracking mode hold_captured_ch3",
                 "docking start",
@@ -27,7 +26,6 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
                 "docking stop",
                 "prealign mode full_control",
                 "prealign mode small_correction",
-                "prealign mode lock_horizontal",
                 "up",
                 "forward",
                 "down",
@@ -52,18 +50,27 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
         self.assertIn('data-rov="right"', html)
         self.assertIn('data-rov="stop"', html)
 
-    def test_surface_console_exposes_tracking_vertical_disable_and_target_distance_modes(self):
+    def test_surface_console_exposes_only_supported_tracking_vertical_modes(self):
         html = Path("tools/surface_console/static/index.html").read_text(encoding="utf-8")
         js = Path("tools/surface_console/static/app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-rov="tracking mode disabled"', html)
         self.assertIn("Disable Vertical", html)
-        self.assertIn('data-rov="tracking mode visual_pid"', html)
-        self.assertIn("Target Distance", html)
         self.assertIn('<option value="disabled">disabled</option>', html)
-        self.assertIn('<option value="visual_pid">visual_pid - target distance</option>', html)
+        self.assertIn('<option value="hold_captured_ch3">hold_captured_ch3</option>', html)
         self.assertIn('LABELS.verticalMode.disabled = "关闭升沉 / disabled";', js)
-        self.assertIn('LABELS.verticalMode.visual_pid = "目标距离 / visual_pid";', js)
+        self.assertNotIn("visual_pid", html)
+        self.assertNotIn("visual_pid", js)
+        self.assertNotIn("desired_z_m", html)
+
+    def test_surface_console_exposes_only_supported_pre_align_modes(self):
+        html = Path("tools/surface_console/static/index.html").read_text(encoding="utf-8")
+        js = Path("tools/surface_console/static/app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-rov="prealign mode full_control"', html)
+        self.assertIn('data-rov="prealign mode small_correction"', html)
+        self.assertNotIn("lock_horizontal", html)
+        self.assertNotIn("lock_horizontal", js)
 
     def test_surface_console_manual_motion_is_three_by_three_with_turns_on_backward_row(self):
         html = Path("tools/surface_console/static/index.html").read_text(encoding="utf-8")
@@ -130,6 +137,11 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
             "pre_align_approach_speed_kp",
             "pre_dock_approach_speed_tolerance_m_s",
             "pre_align_close_loss_hold_max_distance_m",
+            "pre_align_docking_center_offset_camera_x_m",
+            "pre_align_docking_center_offset_camera_y_m",
+            "pre_align_docking_center_tolerance_m",
+            "pre_align_docking_center_release_hysteresis_m",
+            "docking_timeout_s",
         ):
             self.assertIn(f'name="{field}"', html)
 
@@ -150,6 +162,18 @@ class SurfaceConsoleStaticTests(unittest.TestCase):
             "dockingLostHoldCh3",
             "dockingLostHoldReason",
             "dockingLostHoldWaiting",
+            "dockingCenterOffsetActive",
+            "dockingCenterTargetX",
+            "dockingCenterTargetY",
+            "dockingCenterTargetForward",
+            "dockingCenterTargetRight",
+            "dockingCenterPositionOk",
+            "dockingCenterErrorX",
+            "dockingCenterErrorY",
+            "dockingCenterTolerance",
+            "dockingCenterAlignmentOk",
+            "dockingCenterReleaseDistance",
+            "dockingCenterReleaseReason",
         ):
             self.assertIn(f'id="{element_id}"', html)
             self.assertIn(f'"{element_id}"', js)

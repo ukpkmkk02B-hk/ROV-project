@@ -1,6 +1,13 @@
 from dataclasses import dataclass
 
 
+SAFE_CAMERA_TO_BODY_AXES = {
+    "forward_axis": "y",
+    "right_axis": "x",
+    "up_axis": "z",
+}
+
+
 def _as_float(value, default=0.0):
     if value is None:
         return float(default)
@@ -18,6 +25,15 @@ def normalize_angle_deg(value):
     while angle < -180.0:
         angle += 360.0
     return angle
+
+
+def camera_to_body_axes_are_safe(config=None):
+    config = config or {}
+    mapping = config.get("camera_to_body", config) or {}
+    return all(
+        str(mapping.get(key, "")).lower() == expected
+        for key, expected in SAFE_CAMERA_TO_BODY_AXES.items()
+    )
 
 
 @dataclass(frozen=True)

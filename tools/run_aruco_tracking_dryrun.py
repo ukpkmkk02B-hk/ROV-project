@@ -99,7 +99,6 @@ def is_plausible_pose(pose, config):
 
 def build_controller(config):
     return VisualTrackingController(
-        desired_z_m=config.get("desired_z_m", 0.8),
         max_v_m_s=config.get("max_v_m_s", 0.4),
         max_yaw_rate_deg_s=config.get("max_yaw_rate_deg_s", 25.0),
         kp_lateral=config.get("kp_lateral", 0.4),
@@ -196,7 +195,6 @@ def run_dryrun(
     duration_s=None,
     print_interval_s=0.5,
     device_override=None,
-    desired_z_override=None,
     yaw_offset_override=None,
     preview=False,
     preview_scale=1.0,
@@ -209,8 +207,6 @@ def run_dryrun(
         raise ValueError("This dry-run tool only supports vision_tracking.marker_type: aruco")
     if device_override:
         vision_config["device"] = device_override
-    if desired_z_override is not None:
-        vision_config["desired_z_m"] = float(desired_z_override)
     if yaw_offset_override is not None:
         camera_to_body = dict(vision_config.get("camera_to_body", {}))
         camera_to_body["yaw_offset_deg"] = float(yaw_offset_override)
@@ -336,7 +332,6 @@ def parse_args():
     parser.add_argument("--duration", type=float, default=None, help="Optional duration in seconds")
     parser.add_argument("--print-interval", type=float, default=0.5, help="Console print interval in seconds")
     parser.add_argument("--device", default=None, help="Optional camera device override, for example /dev/video0")
-    parser.add_argument("--desired-z", type=float, default=None, help="Temporary desired distance in meters for dry-run")
     parser.add_argument("--yaw-offset", type=float, default=None, help="Temporary yaw offset in degrees for dry-run")
     parser.add_argument("--preview", action="store_true", help="Show annotated ArUco camera preview window")
     parser.add_argument("--preview-scale", type=float, default=1.0, help="Scale factor for preview window, for example 0.5")
@@ -358,7 +353,6 @@ def main():
         duration_s=args.duration,
         print_interval_s=args.print_interval,
         device_override=args.device,
-        desired_z_override=args.desired_z,
         yaw_offset_override=args.yaw_offset,
         preview=args.preview,
         preview_scale=args.preview_scale,

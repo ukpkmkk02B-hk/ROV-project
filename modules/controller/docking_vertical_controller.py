@@ -70,14 +70,14 @@ class DockingVerticalController:
         self._last_timestamp = None if timestamp is None else float(timestamp)
         self._last_status = self._neutral_status()
 
-    def update(self, camera_vz_m_s, desired_up_m_s, vertical_allowed, timestamp):
+    def update(self, camera_vz_m_s, target_approach_speed_m_s, vertical_allowed, timestamp):
         try:
             timestamp = float(timestamp)
             camera_vz_m_s = float(camera_vz_m_s or 0.0)
-            desired_up_m_s = float(desired_up_m_s or 0.0)
+            target_approach_speed_m_s = float(target_approach_speed_m_s or 0.0)
         except (TypeError, ValueError):
             return self._invalid_input_status("invalid_numeric_input")
-        if not all(math.isfinite(value) for value in (timestamp, camera_vz_m_s, desired_up_m_s)):
+        if not all(math.isfinite(value) for value in (timestamp, camera_vz_m_s, target_approach_speed_m_s)):
             return self._invalid_input_status("non_finite_input")
 
         raw_approach_speed = -camera_vz_m_s
@@ -93,7 +93,7 @@ class DockingVerticalController:
 
         if vertical_allowed:
             target_approach_speed = self._clamp(
-                -desired_up_m_s,
+                target_approach_speed_m_s,
                 -self.target_approach_speed_m_s,
                 self.target_approach_speed_m_s,
             )

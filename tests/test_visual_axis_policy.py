@@ -31,7 +31,7 @@ class VisualAxisPolicyTests(unittest.TestCase):
         self.assertEqual(adjusted["tracking_vertical_mode"], "disabled")
         self.assertTrue(adjusted["vertical_disabled_active"])
 
-    def test_visual_pid_full_control_keeps_four_axis_command(self):
+    def test_removed_visual_pid_mode_is_rejected_and_vertical_stays_disabled(self):
         policy = VisualAxisPolicy(
             {
                 "tracking_vertical_mode": "visual_pid",
@@ -43,9 +43,10 @@ class VisualAxisPolicyTests(unittest.TestCase):
 
         self.assertAlmostEqual(adjusted["forward_m_s"], 0.4)
         self.assertAlmostEqual(adjusted["right_m_s"], -0.2)
-        self.assertAlmostEqual(adjusted["up_m_s"], 0.08)
+        self.assertAlmostEqual(adjusted["up_m_s"], 0.0)
         self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], 0.30)
-        self.assertEqual(adjusted["tracking_vertical_mode"], "visual_pid")
+        self.assertEqual(adjusted["tracking_vertical_mode"], "disabled")
+        self.assertEqual(adjusted["tracking_vertical_rejected_reason"], "invalid_tracking_vertical_mode")
         self.assertEqual(adjusted["pre_align_axis_mode"], "full_control")
 
     def test_hold_captured_ch3_zeroes_vertical_command_and_overrides_rc_ch3(self):
@@ -90,16 +91,22 @@ class VisualAxisPolicyTests(unittest.TestCase):
         self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], math.radians(3.0))
         self.assertTrue(adjusted["pre_align_horizontal_scaled"])
 
-    def test_pre_align_lock_horizontal_zeroes_forward_right_yaw_and_limits_vertical(self):
+    def test_legacy_lock_horizontal_falls_back_to_small_correction(self):
         policy = VisualAxisPolicy({"pre_align_axis_mode": "lock_horizontal"})
 
         adjusted = policy.apply(base_command(), stage="pre_align")
 
-        self.assertAlmostEqual(adjusted["forward_m_s"], 0.0)
-        self.assertAlmostEqual(adjusted["right_m_s"], 0.0)
+        self.assertEqual(policy.pre_align_axis_mode, "small_correction")
+        self.assertEqual(policy.pre_align_mode_rejected_reason, "invalid_pre_align_axis_mode")
+        self.assertAlmostEqual(adjusted["forward_m_s"], 0.05)
+        self.assertAlmostEqual(adjusted["right_m_s"], -0.05)
         self.assertAlmostEqual(adjusted["up_m_s"], 0.05)
-        self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], 0.0)
-        self.assertTrue(adjusted["pre_align_horizontal_locked"])
+        self.assertAlmostEqual(adjusted["yaw_rate_rad_s"], math.radians(3.0))
+        self.assertFalse(adjusted["pre_align_horizontal_locked"])
+
+        result = policy.set_pre_align_axis_mode("lock_horizontal")
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "invalid_pre_align_axis_mode")
 
 
 if __name__ == "__main__":

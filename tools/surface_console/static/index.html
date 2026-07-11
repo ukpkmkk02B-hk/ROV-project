@@ -99,6 +99,18 @@
               <dt>丢失保持 ch3 / Hold ch3</dt><dd id="dockingLostHoldCh3">-</dd>
               <dt>丢失保持原因 / Reason</dt><dd id="dockingLostHoldReason">-</dd>
               <dt>等待重新识别 / Reacquire</dt><dd id="dockingLostHoldWaiting">-</dd>
+              <dt>对接中心偏置 / Center offset</dt><dd id="dockingCenterOffsetActive">-</dd>
+              <dt>目标 camera x / Target x</dt><dd id="dockingCenterTargetX">-</dd>
+              <dt>目标 camera y / Target y</dt><dd id="dockingCenterTargetY">-</dd>
+              <dt>目标 forward / Target forward</dt><dd id="dockingCenterTargetForward">-</dd>
+              <dt>目标 right / Target right</dt><dd id="dockingCenterTargetRight">-</dd>
+              <dt>偏置位置就绪 / Offset position</dt><dd id="dockingCenterPositionOk">-</dd>
+              <dt>偏置 camera x 误差 / Error x</dt><dd id="dockingCenterErrorX">-</dd>
+              <dt>偏置 camera y 误差 / Error y</dt><dd id="dockingCenterErrorY">-</dd>
+              <dt>偏置完成容差 / Tolerance</dt><dd id="dockingCenterTolerance">-</dd>
+              <dt>偏置对准完成 / Alignment</dt><dd id="dockingCenterAlignmentOk">-</dd>
+              <dt>偏置解除距离 / Release distance</dt><dd id="dockingCenterReleaseDistance">-</dd>
+              <dt>最近偏置解除原因 / Release reason</dt><dd id="dockingCenterReleaseReason">-</dd>
               <dt>预对接阻止原因 / Block</dt><dd id="preDockBlockReason">-</dd>
               <dt>最近消息 / Last msg</dt><dd id="lastMessage">-</dd>
             </dl>
@@ -207,10 +219,6 @@
                   <span>关闭升沉</span>
                   <small>Disable Vertical</small>
                 </button>
-                <button data-rov="tracking mode visual_pid" type="button">
-                  <span>视觉 PID</span>
-                  <small>Target Distance</small>
-                </button>
                 <button data-rov="tracking capture ch3" type="button">
                   <span>捕获 ch3</span>
                   <small>Capture ch3</small>
@@ -249,10 +257,6 @@
                 <button data-rov="prealign mode small_correction" type="button">
                   <span>小修正</span>
                   <small>Small Correction</small>
-                </button>
-                <button data-rov="prealign mode lock_horizontal" type="button">
-                  <span>锁定水平</span>
-                  <small>Lock Horizontal</small>
                 </button>
               </div>
             </section>
@@ -316,7 +320,6 @@
               <fieldset class="config-group">
                 <legend>跟踪 / Tracking</legend>
                 <div class="config-grid">
-                  <label><span>目标距离 / desired_z_m</span><input name="desired_z_m" type="number" step="0.01"></label>
                   <label><span>最大速度 / max_v_m_s</span><input name="max_v_m_s" type="number" step="0.01" max="1.0"></label>
                   <label><span>最大偏航角速度 / max_yaw_rate_deg_s</span><input name="max_yaw_rate_deg_s" type="number" step="0.1"></label>
                   <label><span>位置死区 / control_deadband_m</span><input name="control_deadband_m" type="number" step="0.001"></label>
@@ -326,7 +329,6 @@
                     <span>垂向模式 / tracking_vertical_mode</span>
                     <select name="tracking_vertical_mode" data-value-type="string">
                       <option value="disabled">disabled</option>
-                      <option value="visual_pid">visual_pid - target distance</option>
                       <option value="hold_captured_ch3">hold_captured_ch3</option>
                     </select>
                   </label>
@@ -341,7 +343,6 @@
                     <select name="pre_align_axis_mode" data-value-type="string">
                       <option value="full_control">full_control</option>
                       <option value="small_correction">small_correction</option>
-                      <option value="lock_horizontal">lock_horizontal</option>
                     </select>
                   </label>
                   <label><span>小修正比例 / pre_align_correction_scale</span><input name="pre_align_correction_scale" type="number" step="0.05"></label>
@@ -353,6 +354,11 @@
                   <label><span>接近速度增益 / pre_align_approach_speed_kp</span><input name="pre_align_approach_speed_kp" type="number" min="0" max="5000" step="50"></label>
                   <label><span>就绪速度容差 / pre_dock_approach_speed_tolerance_m_s</span><input name="pre_dock_approach_speed_tolerance_m_s" type="number" min="0" max="0.10" step="0.005"></label>
                   <label><span>近距丢失保持阈值 / pre_align_close_loss_hold_max_distance_m</span><input name="pre_align_close_loss_hold_max_distance_m" type="number" min="0.05" max="0.50" step="0.01"></label>
+                  <label><span>对接中心 camera x / pre_align_docking_center_offset_camera_x_m</span><input name="pre_align_docking_center_offset_camera_x_m" type="number" min="-0.20" max="0.20" step="0.005"></label>
+                  <label><span>对接中心 camera y / pre_align_docking_center_offset_camera_y_m</span><input name="pre_align_docking_center_offset_camera_y_m" type="number" min="-0.20" max="0.20" step="0.005"></label>
+                  <label><span>对接中心完成容差 / pre_align_docking_center_tolerance_m</span><input name="pre_align_docking_center_tolerance_m" type="number" min="0.002" max="0.05" step="0.001"></label>
+                  <label><span>偏置退远迟滞 / pre_align_docking_center_release_hysteresis_m</span><input name="pre_align_docking_center_release_hysteresis_m" type="number" min="0.01" max="0.50" step="0.01"></label>
+                  <label><span>对接超时 / docking_timeout_s</span><input name="docking_timeout_s" type="number" min="0" max="600" step="1"></label>
                   <label><span>有效帧数 / min_pre_dock_valid_frames</span><input name="min_pre_dock_valid_frames" type="number" step="1"></label>
                   <label><span>最近观测窗口 / recent_age_s</span><input name="pre_dock_recent_observation_max_age_s" type="number" step="0.05"></label>
                   <label><span>位置容差 / position_tolerance_m</span><input name="pre_dock_position_tolerance_m" type="number" step="0.005"></label>

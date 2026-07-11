@@ -68,7 +68,6 @@ vision_tracking:
     yaw_sign: 1.0
     yaw_offset_deg: -90.0
     yaw_normalize: true
-  desired_z_m: 0.5
   max_v_m_s: 0.4
   max_yaw_rate_deg_s: 10.0
   target_motion_mode: "stationary_child"
@@ -84,6 +83,11 @@ vision_tracking:
   pre_align_approach_speed_kp: 2000
   pre_dock_approach_speed_tolerance_m_s: 0.01
   pre_align_close_loss_hold_max_distance_m: 0.15
+  pre_align_docking_center_offset_camera_x_m: 0.03
+  pre_align_docking_center_offset_camera_y_m: 0.06
+  pre_align_docking_center_tolerance_m: 0.01
+  pre_align_docking_center_release_hysteresis_m: 0.05
+  docking_timeout_s: 180
   control_mode: "pid"
   control_deadband_m: 0.01
   yaw_deadband_deg: 1.0

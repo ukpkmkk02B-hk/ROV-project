@@ -143,6 +143,30 @@ class RcOverrideMapperTests(unittest.TestCase):
         self.assertEqual(channels["ch4"], 1530)
         self.assertEqual(channels["ch3"], 1500)
 
+    def test_mapper_can_bypass_min_active_pwm_for_selected_axes_only(self):
+        mapper = RcOverrideMapper(
+            {
+                "enabled": True,
+                "channels": {"forward": "ch5", "right": "ch6", "up": "ch3", "yaw": "ch4"},
+                "neutral_pwm": 1500,
+                "min_pwm": 1400,
+                "max_pwm": 1600,
+                "pwm_per_m_s": 250,
+                "pwm_per_rad_s": 120,
+                "min_active_pwm_offset": 30,
+            }
+        )
+
+        channels = mapper.map_motion_command(
+            MotionCommand(forward_m_s=0.02, right_m_s=-0.02, up_m_s=0.02, yaw_rate_rad_s=0.1),
+            bypass_min_active_axes={"forward", "right"},
+        )
+
+        self.assertEqual(channels["ch5"], 1505)
+        self.assertEqual(channels["ch6"], 1495)
+        self.assertEqual(channels["ch3"], 1530)
+        self.assertEqual(channels["ch4"], 1530)
+
     def test_mapper_does_not_change_zero_large_or_disabled_min_offset_outputs(self):
         disabled = RcOverrideMapper(
             {
